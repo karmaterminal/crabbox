@@ -29,6 +29,22 @@ func TestParseActionsRunRefRequiresRepoForNumericID(t *testing.T) {
 	}
 }
 
+func TestParseActionsRunRefRejectsInvalidIDsAndAttempts(t *testing.T) {
+	for _, value := range []string{
+		"0",
+		"-1",
+		"https://github.com/openclaw/crabbox/actions/runs/not-a-number",
+		"https://github.com/openclaw/crabbox/actions/runs/123/attempts/0",
+		"https://github.com/openclaw/crabbox/actions/runs/123/attempts/nope",
+	} {
+		t.Run(value, func(t *testing.T) {
+			if _, err := parseActionsRunRef(value, "openclaw/crabbox"); err == nil {
+				t.Fatal("expected invalid run ref to fail")
+			}
+		})
+	}
+}
+
 func TestSelectCapsuleFailurePrefersFailedJobAndStep(t *testing.T) {
 	job, step, matched := selectCapsuleFailure([]capsuleJobView{
 		{Name: "Docs", Conclusion: "success"},
@@ -69,8 +85,22 @@ func TestBuildActionsCapsuleManifestKeepsSmallContract(t *testing.T) {
 	if manifest.Replay.Command != "go test ./..." || manifest.Replay.CommandMode != "shell" {
 		t.Fatalf("unexpected replay: %#v", manifest.Replay)
 	}
+	if manifest.Oracle.FailureSignature != "FAIL" || !strings.Contains(manifest.Oracle.SuccessCondition, "same failure signature") {
+		t.Fatalf("unexpected oracle: %#v", manifest.Oracle)
+	}
 	if manifest.Safety.ActionProfile != "build_debug_v1" || manifest.Extensions[repoBuildReplayClass] == nil {
 		t.Fatalf("foundation fields missing: %#v", manifest)
+	}
+}
+
+func TestBuildActionsCapsuleManifestAllowsExitOnlyOracle(t *testing.T) {
+	ref := actionsRunRef{Repo: GitHubRepo{Owner: "openclaw", Name: "crabbox"}, RunID: "123"}
+	manifest := buildActionsCapsuleManifest(ref, capsuleRunView{}, "", capsuleJobView{Name: "Go"}, capsuleStepView{Name: "Test"}, "Replay", "go test ./...", "", "", capsuleArtifactRef{}, nil)
+	if manifest.Oracle.FailureSignature != "" {
+		t.Fatalf("unexpected fallback failure signature: %#v", manifest.Oracle)
+	}
+	if manifest.Oracle.SuccessCondition != "The replay command exits non-zero." {
+		t.Fatalf("unexpected success condition: %q", manifest.Oracle.SuccessCondition)
 	}
 }
 

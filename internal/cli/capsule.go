@@ -204,6 +204,9 @@ func (a App) capsuleFromActions(ctx context.Context, args []string) error {
 	if strings.TrimSpace(*replayCommand) == "" {
 		return exit(2, "capsule from-actions requires --replay")
 	}
+	if *maxLogBytes <= 0 {
+		return exit(2, "--max-log-bytes must be greater than 0")
+	}
 	runRef, err := parseActionsRunRef(fs.Arg(0), *repoFlag)
 	if err != nil {
 		return err
@@ -249,9 +252,6 @@ func (a App) capsuleFromActions(ctx context.Context, args []string) error {
 			logRef = capsuleArtifactRef{Name: "failed-actions-log", Path: filepath.ToSlash(filepath.Join("logs", "failed.log")), Size: int64(len(logText)), Digest: "sha256:" + logDigest}
 			failureSignature = capsuleFailureSignature(logText)
 		}
-	}
-	if failureSignature == "" {
-		failureSignature = defaultCapsuleFailureSignature(job, step)
 	}
 	manifest := buildActionsCapsuleManifest(runRef, view, workflowPath, job, step, *scenario, *replayCommand, *requiredQuality, failureSignature, logRef, artifacts)
 	if err := writeCapsuleManifest(filepath.Join(dir, capsuleManifestFileName), manifest); err != nil {
@@ -434,7 +434,10 @@ func parseActionsRunRef(value, repoOverride string) (actionsRunRef, error) {
 	if value == "" {
 		return actionsRunRef{}, exit(2, "empty GitHub Actions run URL")
 	}
-	if _, err := strconv.ParseInt(value, 10, 64); err == nil {
+	if _, err := strconv.ParseInt(value, 10, 64); err == nil || strings.HasPrefix(value, "-") || strings.HasPrefix(value, "+") {
+		if _, err := parsePositiveActionsInt(value, "run id"); err != nil {
+			return actionsRunRef{}, err
+		}
 		if repoOverride == "" {
 			return actionsRunRef{}, exit(2, "run id requires --repo owner/name")
 		}
@@ -456,11 +459,19 @@ func parseActionsRunRef(value, repoOverride string) (actionsRunRef, error) {
 	if err != nil {
 		return actionsRunRef{}, err
 	}
+	if _, err := parsePositiveActionsInt(parts[4], "run id"); err != nil {
+		return actionsRunRef{}, err
+	}
 	ref := actionsRunRef{Repo: repo, RunID: parts[4]}
-	if len(parts) >= 7 && parts[5] == "attempts" {
-		if attempt, err := strconv.Atoi(parts[6]); err == nil {
-			ref.Attempt = attempt
+	if len(parts) >= 6 && parts[5] == "attempts" {
+		if len(parts) < 7 {
+			return actionsRunRef{}, exit(2, "expected GitHub Actions attempt URL like https://github.com/owner/repo/actions/runs/123/attempts/2")
 		}
+		attempt, err := parsePositiveActionsInt(parts[6], "attempt")
+		if err != nil {
+			return actionsRunRef{}, err
+		}
+		ref.Attempt = attempt
 	}
 	if repoOverride != "" {
 		repo, err := parseGitHubRepo(repoOverride)
@@ -470,6 +481,14 @@ func parseActionsRunRef(value, repoOverride string) (actionsRunRef, error) {
 		ref.Repo = repo
 	}
 	return ref, nil
+}
+
+func parsePositiveActionsInt(value, label string) (int, error) {
+	n, err := strconv.Atoi(value)
+	if err != nil || n <= 0 {
+		return 0, exit(2, "invalid GitHub Actions %s %q", label, value)
+	}
+	return n, nil
 }
 
 func fetchActionsRunView(ctx context.Context, ref actionsRunRef) (capsuleRunView, error) {
@@ -582,6 +601,11 @@ func isFailureConclusion(conclusion string) bool {
 func buildActionsCapsuleManifest(ref actionsRunRef, view capsuleRunView, workflowPath string, job capsuleJobView, step capsuleStepView, scenario, replayCommand, requiredQuality, failureSignature string, logRef capsuleArtifactRef, artifacts []capsuleArtifactRef) capsuleManifest {
 	capturedAt := time.Now().UTC().Format(time.RFC3339)
 	capsuleID := "sha256:" + capsuleIDDigest(ref, view.HeadSHA, replayCommand)
+	failureSignature = strings.TrimSpace(failureSignature)
+	successCondition := "The replay command exits non-zero."
+	if failureSignature != "" {
+		successCondition = "The replay command exits non-zero with the same failure signature."
+	}
 	logs := []capsuleArtifactRef{}
 	if logRef.Name != "" {
 		logs = append(logs, logRef)
@@ -619,7 +643,7 @@ func buildActionsCapsuleManifest(ref actionsRunRef, view capsuleRunView, workflo
 		},
 		Oracle: capsuleOracle{
 			Type:             "deterministic_rerun",
-			SuccessCondition: "The replay command exits non-zero with the same failure signature.",
+			SuccessCondition: successCondition,
 			FailureSignature: failureSignature,
 			ForbiddenSuccessModes: []string{
 				"passing by deleting or skipping the failing test",
@@ -682,16 +706,6 @@ func defaultCapsuleScenario(view capsuleRunView, job capsuleJobView, step capsul
 		parts = append(parts, "step "+step.Name)
 	}
 	return strings.Join(parts, " ")
-}
-
-func defaultCapsuleFailureSignature(job capsuleJobView, step capsuleStepView) string {
-	if step.Name != "" {
-		return "failed step: " + step.Name
-	}
-	if job.Name != "" {
-		return "failed job: " + job.Name
-	}
-	return "replay command exits non-zero"
 }
 
 func capsuleFailureSignature(logText string) string {
