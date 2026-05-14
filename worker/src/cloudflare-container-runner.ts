@@ -88,13 +88,6 @@ export class Sandbox extends Container {
     await this.ctx.storage.put(leaseMetaKey, meta);
     await this.scheduleCleanup(meta);
     await this.ensureReady();
-    const prepare = await this.execContainer({
-      command: `mkdir -p ${shellQuote(workdir)}`,
-      cwd: "/",
-      labels: meta.labels,
-      workdir,
-    });
-    if (!prepare.ok) return prepare;
 
     return json(leaseResponse(meta));
   }
@@ -372,11 +365,12 @@ async function createSandbox(request: Request, env: Env): Promise<Response> {
   if (!workdir) return json({ error: "workdir must be an absolute path" }, 400);
 
   const container = getContainer(env.Sandbox, sandboxID);
+  const sanitizedBody = { ...body, id: sandboxID, workdir };
   return container.fetch(
     internalRequest("/__crabbox/create", undefined, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(sanitizedBody),
     }),
   );
 }
@@ -443,13 +437,15 @@ function json(value: unknown, status = 200): Response {
 }
 
 function internalRequest(path: string, source?: Request, init: RequestInit = {}): Request {
-  const next: RequestInit = {
+  const next: RequestInit & { duplex?: "half" } = {
     method: init.method ?? source?.method ?? "GET",
   };
-  const headers = init.headers ?? source?.headers;
-  if (headers !== undefined) next.headers = headers;
+  if (init.headers !== undefined) next.headers = init.headers;
   const body = init.body ?? source?.body;
-  if (body !== undefined && body !== null) next.body = body;
+  if (body !== undefined && body !== null) {
+    next.body = body;
+    if (body instanceof ReadableStream) next.duplex = "half";
+  }
   return new Request(`http://crabbox.internal${path}`, next);
 }
 
@@ -462,7 +458,17 @@ function cleanSandboxID(value: string): string {
 function cleanAbsolutePath(value: string): string {
   const trimmed = value.trim();
   if (!trimmed.startsWith("/") || trimmed.includes("\0")) return "";
-  return trimmed;
+  const parts: string[] = [];
+  for (const part of trimmed.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      if (parts.length === 0) return "";
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  return `/${parts.join("/")}`;
 }
 
 function sanitizeLabels(value: unknown): Record<string, string> {
@@ -516,10 +522,6 @@ function tokenEquals(actual: string, expected: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
 
 function leaseExpiresAtMs(meta: LeaseMetadata): number | undefined {

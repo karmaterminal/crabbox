@@ -56,10 +56,6 @@ func newLeaseSlug(leaseID string) string {
 	return core.NewLeaseSlug(leaseID)
 }
 
-func normalizeLeaseSlug(value string) string {
-	return core.NormalizeLeaseSlug(value)
-}
-
 func claimLeaseForRepoProvider(leaseID, slug, provider, repoRoot string, idleTimeout time.Duration, reclaim bool) error {
 	return core.ClaimLeaseForRepoProvider(leaseID, slug, provider, repoRoot, idleTimeout, reclaim)
 }

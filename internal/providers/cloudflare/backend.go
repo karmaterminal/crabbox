@@ -446,7 +446,7 @@ func cloudflareReady(status string) bool {
 
 func cloudflareTerminalState(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "expired", "stopped", "stopped_with_code", "destroyed", "not_found", "not-found":
+	case "expired", "stopped":
 		return true
 	default:
 		return false

@@ -123,9 +123,9 @@ crabbox stop --provider cloudflare <lease-id>
 - Before uploading an archive, the provider checks remote disk headroom for the
   compressed archive plus extracted checkout and fails early with a sizing hint
   when the selected instance type is too small.
-- `warmup` creates the container and prepares the workdir. Warmed containers
-  remain alive until `crabbox stop` or the configured TTL/idle deadline
-  expires.
+- `warmup` creates the container and starts the runner. The workdir is prepared
+  when a later sync or no-sync run uses the lease. Warmed containers remain
+  alive until `crabbox stop` or the configured TTL/idle deadline expires.
 - `status` and `stop` resolve Crabbox's local claim and call the runner.
 - `list` reports local Cloudflare claims. Cloudflare does not expose a
   global container listing API through the runner.
