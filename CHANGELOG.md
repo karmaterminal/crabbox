@@ -8,6 +8,7 @@
 - Added `crabbox admin mac-hosts` to list host offerings, dry-run allocation requests, allocate, and release AWS EC2 Mac Dedicated Hosts through the coordinator admin token.
 - Added `scripts/macos-image-lifecycle-smoke.sh` for guarded EC2 Mac host, WebVNC, AMI create, candidate smoke, promotion, and promoted-image smoke validation.
 - Hardened the macOS image lifecycle smoke so it waits for EC2 Mac Dedicated Host scrubbing between source, candidate, and promoted-image boots.
+- Hardened the macOS image lifecycle smoke so lease cleanup also stops each lease's local WebVNC daemon.
 - Added `crabbox checkpoint` native disk-snapshot checkpoints for brokered AWS, Azure, and GCP Linux leases, optional provider image checkpoints via `--strategy image`, local workspace archives for generic POSIX SSH leases, inspect/list/delete flows, archive restore, and checkpoint forks into fresh leases.
 - Added brokered provider snapshot/image deletion for AWS EBS snapshots and AMIs, Azure managed disk snapshots and managed images, and GCP disk snapshots and machine images.
 

@@ -216,8 +216,9 @@ starts WebVNC, collects desktop artifacts, creates a candidate AMI with a
 rebooting image capture, boots and smokes the candidate, then promotes and
 smokes the promoted image when `CRABBOX_MACOS_PROMOTE=1`. EC2 Mac Dedicated
 Hosts have provider-side billing and release constraints; the script stops
-leases by default, waits for the host to return to `available` between macOS
-boots, and releases the host only when `CRABBOX_MACOS_RELEASE_HOST=1`.
+each lease's local WebVNC daemon before lease cleanup, waits for the host to
+return to `available` between macOS boots, and releases the host only when
+`CRABBOX_MACOS_RELEASE_HOST=1`.
 
 If an available EC2 Mac Dedicated Host already exists, the script still stops
 after preflight unless `CRABBOX_MACOS_RUN=1` or `CRABBOX_MACOS_ALLOCATE=1` is

@@ -44,6 +44,7 @@ need() {
 stop_lease() {
   local lease="$1"
   [[ -n "$lease" ]] || return 0
+  run "$CRABBOX_BIN" webvnc daemon stop --id "$lease" || true
   run "$CRABBOX_BIN" stop --provider aws --target macos "$lease" || true
 }
 
