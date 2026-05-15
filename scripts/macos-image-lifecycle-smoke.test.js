@@ -25,6 +25,10 @@ printf '%s\\n' "$*" >>"$log"
 if [[ "$1" == "admin" && "$2" == "mac-hosts" ]]; then
   case "$3" in
     offerings)
+      if [[ "\${CRABBOX_FAKE_OFFERINGS_404:-0}" == "1" ]]; then
+        printf 'coordinator GET /v1/admin/mac-hosts/offerings?region=eu-west-1&type=mac2.metal: http 404: {"error":"not_found"}\\n' >&2
+        exit 1
+      fi
       printf 'eu-west-1    eu-west-1b     mac2.metal\\n'
       ;;
     list)
@@ -151,6 +155,26 @@ async function assertFileContains(file, expected) {
   const text = await readFile(file, "utf8");
   assert.match(text, expected);
 }
+
+test("macOS lifecycle smoke reports a missing coordinator mac-host endpoint before paid work", async () => {
+  const run = await setupRun();
+  const result = await runLifecycle({
+    CRABBOX_BIN: run.fake,
+    CRABBOX_FAKE_LOG: run.fakeLog,
+    CRABBOX_FAKE_STATE: run.fakeState,
+    CRABBOX_FAKE_OFFERINGS_404: "1",
+    CRABBOX_MACOS_ARTIFACT_DIR: run.artifacts,
+    CRABBOX_MACOS_IMAGE_NAME: "missing-endpoint",
+    CRABBOX_MACOS_WEBVNC_START_GRACE: "0s",
+  });
+
+  assert.equal(result.code, 1, result.stdout + result.stderr);
+  const summary = await readJSON(path.join(run.artifacts, "summary.json"));
+  assert.equal(summary.result, "blocked");
+  assert.equal(summary.phase, "host-offerings");
+  assert.match(summary.blocker.message, /does not expose EC2 Mac host lifecycle admin endpoints/);
+  assert.match(summary.blocker.message, /\/v1\/admin\/mac-hosts/);
+});
 
 test("macOS lifecycle smoke writes a blocked IAM summary before paid work", async () => {
   const run = await setupRun();

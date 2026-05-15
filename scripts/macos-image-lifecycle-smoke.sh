@@ -72,6 +72,44 @@ run_tee() {
   "$@" | tee "$out"
 }
 
+preflight_blocker_from_stderr() {
+  local label="$1"
+  local err="$2"
+  local detail=""
+  if [[ -s "$err" ]]; then
+    detail="$(head -c 500 "$err" | tr '\n' ' ' | tr -s ' ')"
+  fi
+  if grep -q -E 'http 404|not_found' "$err"; then
+    blocker_message="coordinator does not expose EC2 Mac host lifecycle admin endpoints; deploy a coordinator with /v1/admin/mac-hosts support before Mac image validation"
+    return 0
+  fi
+  blocker_message="$label failed"
+  if [[ -n "$detail" ]]; then
+    blocker_message="$blocker_message: $detail"
+  fi
+}
+
+preflight_command() {
+  local phase="$1"
+  local label="$2"
+  local out="$3"
+  shift 3
+  local err="${out}.stderr"
+  printf '+' >&2
+  printf ' %q' "$@" >&2
+  printf '\n' >&2
+  set +e
+  "$@" > >(tee "$out") 2> >(tee "$err" >&2)
+  local status=$?
+  set -e
+  if [[ "$status" -ne 0 ]]; then
+    preflight_blocker_from_stderr "$label" "$err"
+    printf 'macOS lifecycle blocked before paid work: %s\n' "$blocker_message" >&2
+    write_summary blocked "$phase"
+    exit 1
+  fi
+}
+
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
     printf 'missing required command: %s\n' "$1" >&2
@@ -420,8 +458,9 @@ write_summary running preflight
 printf 'macOS lifecycle smoke region=%s type=%s image=%s host-wait=%s\n' "$region" "$instance_type" "$image_name" "$host_wait_timeout"
 offerings_log="$evidence_dir/mac-host-offerings.txt"
 hosts_log="$evidence_dir/mac-host-list.json"
-run "$CRABBOX_BIN" admin mac-hosts offerings --region "$region" --type "$instance_type" | tee "$offerings_log"
-hosts_json="$("$CRABBOX_BIN" admin mac-hosts list --region "$region" --type "$instance_type" --json | tee "$hosts_log")"
+preflight_command host-offerings "mac host offerings" "$offerings_log" "$CRABBOX_BIN" admin mac-hosts offerings --region "$region" --type "$instance_type"
+preflight_command host-list "mac host list" "$hosts_log" "$CRABBOX_BIN" admin mac-hosts list --region "$region" --type "$instance_type" --json
+hosts_json="$(cat "$hosts_log")"
 printf '%s\n' "$hosts_json" | jq .
 
 existing_host="$(
@@ -444,7 +483,7 @@ if [[ -n "$existing_host" ]]; then
 else
   summary_phase="host-dry-run"
   dry_log="$evidence_dir/mac-host-dry-run.json"
-  run_tee "$dry_log" "$CRABBOX_BIN" admin mac-hosts allocate --region "$region" --type "$instance_type" --dry-run --json
+  preflight_command host-dry-run "mac host dry-run" "$dry_log" "$CRABBOX_BIN" admin mac-hosts allocate --region "$region" --type "$instance_type" --dry-run --json
   if ! jq -e 'any(.[]; .ok == true)' "$dry_log" >/dev/null; then
     blocker_message="$(jq -r '[.[] | select(.ok != true) | .message] | unique | join("; ")' "$dry_log")"
     printf 'macOS lifecycle blocked before paid work: EC2 Mac host dry-run did not succeed.\n' >&2
