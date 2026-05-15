@@ -45,6 +45,15 @@ dry_log=""
 allocate_log=""
 image_create_log=""
 image_promote_log=""
+source_host_wait_log=""
+candidate_host_wait_log=""
+promoted_host_wait_log=""
+source_warmup_log=""
+candidate_warmup_log=""
+promoted_warmup_log=""
+source_webvnc_status_log=""
+candidate_webvnc_status_log=""
+promoted_webvnc_status_log=""
 
 run() {
   printf '+'
@@ -117,6 +126,15 @@ write_summary() {
     --arg allocateLog "$allocate_log" \
     --arg imageCreateLog "$image_create_log" \
     --arg imagePromoteLog "$image_promote_log" \
+    --arg sourceHostWaitLog "$source_host_wait_log" \
+    --arg candidateHostWaitLog "$candidate_host_wait_log" \
+    --arg promotedHostWaitLog "$promoted_host_wait_log" \
+    --arg sourceWarmupLog "$source_warmup_log" \
+    --arg candidateWarmupLog "$candidate_warmup_log" \
+    --arg promotedWarmupLog "$promoted_warmup_log" \
+    --arg sourceWebVNCStatusLog "$source_webvnc_status_log" \
+    --arg candidateWebVNCStatusLog "$candidate_webvnc_status_log" \
+    --arg promotedWebVNCStatusLog "$promoted_webvnc_status_log" \
     '{
       generatedAt: $generatedAt,
       result: $result,
@@ -156,7 +174,22 @@ write_summary() {
         hostDryRun: $dryLog,
         hostAllocate: $allocateLog,
         imageCreate: $imageCreateLog,
-        imagePromote: $imagePromoteLog
+        imagePromote: $imagePromoteLog,
+        hostWait: {
+          source: $sourceHostWaitLog,
+          candidate: $candidateHostWaitLog,
+          promoted: $promotedHostWaitLog
+        },
+        warmup: {
+          source: $sourceWarmupLog,
+          candidate: $candidateWarmupLog,
+          promoted: $promotedWarmupLog
+        },
+        webvncStatus: {
+          source: $sourceWebVNCStatusLog,
+          candidate: $candidateWebVNCStatusLog,
+          promoted: $promotedWebVNCStatusLog
+        }
       }
     }' >"$summary_file"
   printf 'macOS lifecycle summary: %s\n' "$summary_file"
@@ -217,6 +250,37 @@ duration_seconds() {
   esac
 }
 
+log_for_label() {
+  local category="$1"
+  local label="$2"
+  case "$label" in
+    source | candidate | promoted) ;;
+    *)
+      printf 'invalid lifecycle label: %s\n' "$label" >&2
+      exit 2
+      ;;
+  esac
+  printf '%s/%s-%s.log\n' "$evidence_dir" "$category" "$label"
+}
+
+log_line() {
+  local log="$1"
+  shift
+  printf '%s\n' "$*" | tee -a "$log"
+}
+
+set_evidence_paths() {
+  source_host_wait_log="$(log_for_label host-wait source)"
+  candidate_host_wait_log="$(log_for_label host-wait candidate)"
+  promoted_host_wait_log="$(log_for_label host-wait promoted)"
+  source_warmup_log="$(log_for_label warmup source)"
+  candidate_warmup_log="$(log_for_label warmup candidate)"
+  promoted_warmup_log="$(log_for_label warmup promoted)"
+  source_webvnc_status_log="$(log_for_label webvnc-status source)"
+  candidate_webvnc_status_log="$(log_for_label webvnc-status candidate)"
+  promoted_webvnc_status_log="$(log_for_label webvnc-status promoted)"
+}
+
 mac_host_state() {
   local host="$1"
   "$CRABBOX_BIN" admin mac-hosts list --region "$region" --type "$instance_type" --json |
@@ -227,36 +291,40 @@ wait_for_host_available() {
   local host="$1"
   local label="$2"
   [[ -n "$host" ]] || return 0
-  local timeout_seconds interval_seconds deadline state
+  local timeout_seconds interval_seconds deadline state log
+  log="$(log_for_label host-wait "$label")"
+  : >"$log"
   timeout_seconds="$(duration_seconds "$host_wait_timeout")"
   interval_seconds="$(duration_seconds "$host_wait_interval")"
   deadline="$(($(date +%s) + timeout_seconds))"
-  printf 'waiting for EC2 Mac Dedicated Host %s to become available after %s lease stop; timeout=%s interval=%s\n' "$host" "$label" "$host_wait_timeout" "$host_wait_interval"
+  log_line "$log" "waiting for EC2 Mac Dedicated Host $host to become available after $label lease stop; timeout=$host_wait_timeout interval=$host_wait_interval"
   while true; do
     state="$(mac_host_state "$host")"
     if [[ "$state" == "available" ]]; then
-      printf 'host %s is available\n' "$host"
+      log_line "$log" "host $host is available"
       return 0
     fi
     if [[ "$(date +%s)" -ge "$deadline" ]]; then
-      printf 'timed out waiting for EC2 Mac Dedicated Host %s to become available; last state=%s\n' "$host" "${state:-missing}" >&2
+      log_line "$log" "timed out waiting for EC2 Mac Dedicated Host $host to become available; last state=${state:-missing}" >&2
       return 1
     fi
-    printf 'host %s state=%s; sleeping %ss\n' "$host" "${state:-missing}" "$interval_seconds"
+    log_line "$log" "host $host state=${state:-missing}; sleeping ${interval_seconds}s"
     sleep "$interval_seconds"
   done
 }
 
 require_webvnc_connected() {
   local lease="$1"
+  local label="$2"
   local timeout_seconds interval_seconds deadline log
-  log="$(mktemp)"
+  log="$(log_for_label webvnc-status "$label")"
+  : >"$log"
   timeout_seconds="$(duration_seconds "$webvnc_wait_timeout")"
   interval_seconds="$(duration_seconds "$webvnc_wait_interval")"
   deadline="$(($(date +%s) + timeout_seconds))"
   printf 'waiting for WebVNC portal bridge for lease %s; timeout=%s interval=%s\n' "$lease" "$webvnc_wait_timeout" "$webvnc_wait_interval"
   while true; do
-    run "$CRABBOX_BIN" webvnc status --provider aws --target macos --id "$lease" | tee "$log"
+    run "$CRABBOX_BIN" webvnc status --provider aws --target macos --id "$lease" | tee -a "$log"
     if grep -q '^portal bridge: connected=true' "$log"; then
       printf 'WebVNC portal bridge connected for lease %s\n' "$lease"
       return 0
@@ -274,7 +342,8 @@ warmup_macos() {
   local label="$1"
   shift
   local log
-  log="$(mktemp)"
+  log="$(log_for_label warmup "$label")"
+  : >"$log"
   printf 'warming macOS lease: %s\n' "$label" >&2
   (
     "$CRABBOX_BIN" warmup \
@@ -321,7 +390,7 @@ smoke_macos_lease() {
     run "$CRABBOX_BIN" webvnc daemon start --provider aws --target macos --id "$lease"
   fi
   sleep 3
-  require_webvnc_connected "$lease"
+  require_webvnc_connected "$lease" "$label"
   run "$CRABBOX_BIN" artifacts collect \
     --provider aws \
     --target macos \
@@ -340,9 +409,10 @@ if [[ ! -x "$CRABBOX_BIN" ]]; then
   exit 2
 fi
 
+mkdir -p "$evidence_dir"
+set_evidence_paths
 write_summary running preflight
 printf 'macOS lifecycle smoke region=%s type=%s image=%s host-wait=%s\n' "$region" "$instance_type" "$image_name" "$host_wait_timeout"
-mkdir -p "$evidence_dir"
 offerings_log="$evidence_dir/mac-host-offerings.txt"
 hosts_log="$evidence_dir/mac-host-list.json"
 run "$CRABBOX_BIN" admin mac-hosts offerings --region "$region" --type "$instance_type" | tee "$offerings_log"

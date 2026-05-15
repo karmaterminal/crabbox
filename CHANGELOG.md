@@ -14,6 +14,7 @@
 - Fixed the macOS image lifecycle smoke so `CRABBOX_MACOS_RELEASE_HOST=1` releases a script-allocated host after source-only and candidate-only runs too.
 - Added a macOS image lifecycle `summary.json` artifact with the run phase, host id, lease ids, AMI id, and artifact paths for blocked, partial, and completed runs.
 - Added stable macOS image lifecycle evidence files for host discovery, allocation, image creation, and image promotion outputs.
+- Added stable macOS image lifecycle warmup, host wait, and WebVNC status evidence paths to make live image-bake failures diagnosable from the run artifact alone.
 - Added `crabbox checkpoint` native disk-snapshot checkpoints for brokered AWS, Azure, and GCP Linux leases, optional provider image checkpoints via `--strategy image`, local workspace archives for generic POSIX SSH leases, inspect/list/delete flows, archive restore, and checkpoint forks into fresh leases.
 - Added checkpoint audit and cleanup management with `crabbox checkpoint list --verify`, `inspect --verify`, and `prune --older-than`.
 - Added `provider: cloudflare` delegated runs for Cloudflare Containers through a Worker runner, including archive sync, warm containers, local claim cleanup, and deployment docs. Thanks @altaywtf.
