@@ -117,6 +117,13 @@ so `CreateTags` should be allowed only when the EC2 create action is
 }
 ```
 
+This policy is intentionally limited to EC2 Mac Dedicated Host lifecycle
+operations. End-to-end macOS image validation also needs the normal brokered
+AWS provider permissions for key pairs, security groups, `RunInstances`,
+`TerminateInstances`, image creation/promotion, snapshot cleanup, and optional
+Service Quotas reads. See [Infrastructure](../infrastructure.md#aws-ec2) before
+running the paid macOS image smoke.
+
 Flags:
 
 ```text

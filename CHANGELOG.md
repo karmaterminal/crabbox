@@ -31,6 +31,7 @@
 
 - Improved checkpoint documentation with clearer native vs archive distinction, workflow mechanics, security warnings, and command reference examples.
 - Clarified the EC2 Mac host IAM policy, including the create-time tag permission needed by `crabbox admin mac-hosts allocate --dry-run`.
+- Clarified that the EC2 Mac host lifecycle policy is separate from the baseline AWS provider permissions needed for paid macOS image bake, WebVNC, promotion, and cleanup validation.
 
 ### Fixed
 

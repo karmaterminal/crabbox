@@ -125,6 +125,12 @@ because Crabbox tags hosts during `AllocateHosts`; scope it with
 the request path without creating a Dedicated Host. Use `admin aws-identity` to
 confirm which coordinator AWS principal needs the policy.
 
+That host lifecycle policy is not the full macOS image policy. The later
+warmup, WebVNC, AMI create, candidate boot, promotion, and cleanup phases also
+need the normal brokered AWS provider permissions documented in
+[Infrastructure](../infrastructure.md#aws-ec2), including launch/list/tag/terminate,
+key pair, security group, image, snapshot, and optional Service Quotas access.
+
 CLI/direct env and config:
 
 ```text
