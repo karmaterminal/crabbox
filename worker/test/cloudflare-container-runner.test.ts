@@ -13,23 +13,54 @@ class MemoryStorage {
 }
 
 class MockContainer {
-  readonly ctx: { storage: MemoryStorage; waitUntil: (promise: Promise<unknown>) => void };
+  readonly ctx: {
+    storage: MemoryStorage;
+    waitUntil: (promise: Promise<unknown>) => void;
+    blockConcurrencyWhile: <T>(callback: () => Promise<T>) => Promise<T>;
+  };
   readonly schedules: Array<{ when: Date | number; callback: string }> = [];
   deletedSchedules: string[] = [];
   destroyed = false;
   stopped = false;
   started = false;
+  failStart = false;
   renewedActivityTimeouts = 0;
   execResponse: Response | undefined;
+  fileResponse: Response | Promise<Response> | undefined;
+  private concurrencyQueue: Promise<void> = Promise.resolve();
 
-  constructor(ctx: { storage: MemoryStorage; waitUntil?: (promise: Promise<unknown>) => void }) {
+  constructor(ctx: {
+    storage: MemoryStorage;
+    waitUntil?: (promise: Promise<unknown>) => void;
+    blockConcurrencyWhile?: <T>(callback: () => Promise<T>) => Promise<T>;
+  }) {
     this.ctx = {
       ...ctx,
       waitUntil: ctx.waitUntil ?? ((promise) => void promise),
+      blockConcurrencyWhile:
+        ctx.blockConcurrencyWhile ??
+        (async (callback) => {
+          const run = (async () => {
+            try {
+              await this.concurrencyQueue;
+            } catch {
+              // Keep the mock queue moving after failed callbacks, matching DO scheduling.
+            }
+            return callback();
+          })();
+          this.concurrencyQueue = run.then(
+            () => undefined,
+            () => undefined,
+          );
+          return run;
+        }),
     };
   }
 
   async startAndWaitForPorts(): Promise<void> {
+    if (this.failStart) {
+      throw new Error("port wait failed");
+    }
     this.started = true;
   }
 
@@ -42,6 +73,7 @@ class MockContainer {
       });
     }
     if (url.pathname === "/v1/files") {
+      if (this.fileResponse) return this.fileResponse;
       return Response.json({ ok: true, path: url.searchParams.get("path") });
     }
     return Response.json({ ok: true });
@@ -145,6 +177,23 @@ function execLease(
       command: "echo hi",
       cwd: "/workspace/repo",
       ...body,
+    }),
+  );
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
+function uploadLease(sandbox: InstanceType<typeof Sandbox>): Promise<Response> {
+  return sandbox.fetch(
+    new Request("http://crabbox.internal/__crabbox/files?path=/workspace/repo/archive.tgz", {
+      method: "POST",
+      body: "payload",
     }),
   );
 }
@@ -352,6 +401,129 @@ describe("Cloudflare runner lifecycle", () => {
       lastTouchedAt: "2026-05-13T18:00:11.000Z",
       expiresAt: "2026-05-13T18:00:21.000Z",
     });
+  });
+
+  it("does not expire a lease while a file upload is active", async () => {
+    const storage = new MemoryStorage();
+    const sandbox = new Sandbox({ storage });
+    await createLease(sandbox, { idleTimeoutSeconds: 10 });
+
+    const uploadResponse = deferred<Response>();
+    sandbox.fileResponse = uploadResponse.promise;
+
+    const upload = uploadLease(sandbox);
+    await vi.waitFor(async () => {
+      const meta = await storage.get<{ activeExecutions?: number }>("crabbox:lease");
+      expect(meta?.activeExecutions).toBe(1);
+    });
+
+    vi.setSystemTime(new Date("2026-05-13T18:00:11Z"));
+    await sandbox.expireIfIdle();
+    expect(sandbox.destroyed).toBe(false);
+
+    uploadResponse.resolve(Response.json({ ok: true }));
+    const response = await upload;
+    expect(response.status).toBe(200);
+
+    const status = await sandbox.fetch(crabboxRequest("/__crabbox/status"));
+    await expect(status.json()).resolves.toMatchObject({
+      state: "running",
+      lastTouchedAt: "2026-05-13T18:00:11.000Z",
+      expiresAt: "2026-05-13T18:00:21.000Z",
+    });
+  });
+
+  it("serializes active execution accounting for concurrent requests", async () => {
+    const storage = new MemoryStorage();
+    const sandbox = new Sandbox({ storage });
+    await createLease(sandbox, { idleTimeoutSeconds: 10 });
+
+    const uploadResponse = deferred<Response>();
+    sandbox.fileResponse = uploadResponse.promise;
+
+    let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+    sandbox.execResponse = new Response(
+      new ReadableStream<Uint8Array>({
+        start(nextController) {
+          controller = nextController;
+          nextController.enqueue(
+            new TextEncoder().encode('{"type":"stdout","data":"started\\n"}\n'),
+          );
+        },
+      }),
+      { headers: { "Content-Type": "application/x-ndjson" } },
+    );
+
+    const upload = uploadLease(sandbox);
+    const exec = execLease(sandbox, { command: "sleep 30" });
+    await vi.waitFor(async () => {
+      const meta = await storage.get<{ activeExecutions?: number }>("crabbox:lease");
+      expect(meta?.activeExecutions).toBe(2);
+    });
+
+    vi.setSystemTime(new Date("2026-05-13T18:00:11Z"));
+    await sandbox.expireIfIdle();
+    expect(sandbox.destroyed).toBe(false);
+
+    uploadResponse.resolve(Response.json({ ok: true }));
+    expect((await upload).status).toBe(200);
+    controller?.close();
+    await (await exec).text();
+    await vi.runAllTimersAsync();
+
+    const meta = await storage.get<{ activeExecutions?: number }>("crabbox:lease");
+    expect(meta?.activeExecutions).toBeUndefined();
+  });
+
+  it("clears active execution state when the container stream fails", async () => {
+    const storage = new MemoryStorage();
+    const sandbox = new Sandbox({ storage });
+    await createLease(sandbox, { idleTimeoutSeconds: 600 });
+
+    sandbox.execResponse = new Response(
+      new ReadableStream<Uint8Array>({
+        pull() {
+          throw new Error("stream read failed");
+        },
+      }),
+      { headers: { "Content-Type": "application/x-ndjson" } },
+    );
+
+    const response = await execLease(sandbox);
+    await expect(response.text()).rejects.toThrow("stream read failed");
+    await vi.runAllTimersAsync();
+
+    const meta = await storage.get<{ activeExecutions?: number }>("crabbox:lease");
+    expect(meta?.activeExecutions).toBeUndefined();
+  });
+
+  it("clears active execution state when startup fails", async () => {
+    const storage = new MemoryStorage();
+    const sandbox = new Sandbox({ storage });
+    await createLease(sandbox, { idleTimeoutSeconds: 600 });
+    sandbox.failStart = true;
+
+    await expect(execLease(sandbox)).rejects.toThrow("port wait failed");
+    await vi.runAllTimersAsync();
+
+    const meta = await storage.get<{ activeExecutions?: number }>("crabbox:lease");
+    expect(meta?.activeExecutions).toBeUndefined();
+  });
+
+  it("marks create startup failures stopped and destroys the container", async () => {
+    const storage = new MemoryStorage();
+    const sandbox = new Sandbox({ storage });
+    sandbox.failStart = true;
+
+    await expect(createLease(sandbox, { idleTimeoutSeconds: 600 })).rejects.toThrow(
+      "port wait failed",
+    );
+
+    const meta = await storage.get<{ state?: string; stoppedAt?: string }>("crabbox:lease");
+    expect(meta).toMatchObject({ state: "stopped" });
+    expect(meta?.stoppedAt).toBeDefined();
+    expect(sandbox.deletedSchedules).toContain("expireIfIdle");
+    expect(sandbox.destroyed).toBe(true);
   });
 
   it("expires and destroys the container after the deadline", async () => {

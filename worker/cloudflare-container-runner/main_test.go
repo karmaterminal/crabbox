@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -95,6 +97,39 @@ func TestHandleExecTimeoutCompletesWithExitCode124(t *testing.T) {
 			t.Fatalf("unexpected error event: %#v", event)
 		}
 	}
+}
+
+func TestRunCommandMapsSignaledExitCode(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writer := &eventWriter{w: rec, flusher: rec}
+
+	code, err := runCommand(context.Background(), execRequest{Command: "kill -9 $$"}, t.TempDir(), writer)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 137 {
+		t.Fatalf("exit code = %d, want 137", code)
+	}
+}
+
+func TestCopyPipeTreatsClosedPipeAsEOF(t *testing.T) {
+	var wg sync.WaitGroup
+	rec := httptest.NewRecorder()
+	writer := &eventWriter{w: rec, flusher: rec}
+
+	wg.Add(1)
+	copyPipe(&wg, closedPipeReader{}, "stdout", writer)
+
+	if body := rec.Body.String(); body != "" {
+		t.Fatalf("copyPipe emitted %q for closed pipe", body)
+	}
+}
+
+type closedPipeReader struct{}
+
+func (closedPipeReader) Read([]byte) (int, error) {
+	return 0, os.ErrClosed
 }
 
 func parseStreamEvents(t *testing.T, body string) []streamEvent {

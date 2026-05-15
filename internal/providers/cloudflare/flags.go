@@ -7,14 +7,12 @@ import (
 
 type cloudflareFlagValues struct {
 	APIURL  *string
-	Token   *string
 	Workdir *string
 }
 
 func RegisterCloudflareProviderFlags(fs *flag.FlagSet, defaults Config) any {
 	return cloudflareFlagValues{
 		APIURL:  fs.String("cloudflare-url", defaults.Cloudflare.APIURL, "Cloudflare runner API URL"),
-		Token:   fs.String("cloudflare-token", "", "Cloudflare runner bearer token"),
 		Workdir: fs.String("cloudflare-workdir", defaults.Cloudflare.Workdir, "Absolute working directory inside the Cloudflare workspace"),
 	}
 }
@@ -41,9 +39,6 @@ func ApplyCloudflareProviderFlags(cfg *Config, fs *flag.FlagSet, values any) err
 	}
 	if flagWasSet(fs, "cloudflare-url") {
 		cfg.Cloudflare.APIURL = *v.APIURL
-	}
-	if flagWasSet(fs, "cloudflare-token") {
-		cfg.Cloudflare.Token = *v.Token
 	}
 	if flagWasSet(fs, "cloudflare-workdir") {
 		cfg.Cloudflare.Workdir = *v.Workdir

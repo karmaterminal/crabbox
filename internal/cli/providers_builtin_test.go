@@ -534,7 +534,7 @@ func (testCloudflareProvider) Spec() ProviderSpec {
 		Name:        "cloudflare",
 		Kind:        ProviderKindDelegatedRun,
 		Targets:     []TargetSpec{{OS: targetLinux}},
-		Features:    FeatureSet{FeatureArchiveSync},
+		Features:    FeatureSet{FeatureArchiveSync, FeatureCleanup},
 		Coordinator: CoordinatorNever,
 	}
 }

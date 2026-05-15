@@ -201,9 +201,24 @@ func runCommand(ctx context.Context, req execRequest, cwd string, writer *eventW
 	}
 	var exitErr *exec.ExitError
 	if errors.As(waitErr, &exitErr) {
-		return exitErr.ExitCode(), nil
+		return commandExitCode(exitErr), nil
 	}
 	return 1, waitErr
+}
+
+func commandExitCode(exitErr *exec.ExitError) int {
+	if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+		if status.Signaled() {
+			return 128 + int(status.Signal())
+		}
+		if status.Exited() {
+			return status.ExitStatus()
+		}
+	}
+	if code := exitErr.ExitCode(); code >= 0 {
+		return code
+	}
+	return 1
 }
 
 func copyPipe(wg *sync.WaitGroup, reader io.Reader, eventType string, writer *eventWriter) {
@@ -215,12 +230,16 @@ func copyPipe(wg *sync.WaitGroup, reader io.Reader, eventType string, writer *ev
 			writer.write(streamEvent{Type: eventType, Data: string(buf[:n])})
 		}
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
+			if !benignPipeReadError(err) {
 				writer.write(streamEvent{Type: "error", Error: err.Error()})
 			}
 			return
 		}
 	}
+}
+
+func benignPipeReadError(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed)
 }
 
 type eventWriter struct {

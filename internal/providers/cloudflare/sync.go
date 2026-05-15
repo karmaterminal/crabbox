@@ -62,11 +62,7 @@ func (b *cloudflareBackend) syncWorkspace(ctx context.Context, client *cloudflar
 	if err := client.uploadFile(syncCtx, sandboxID, archive.Name(), remoteArchive); err != nil {
 		return nil, 0, fmt.Errorf("upload archive: %w", err)
 	}
-	extract := strings.Join([]string{
-		"tar -xzf " + shellQuote(remoteArchive) + " -C " + shellQuote(workdir),
-		"rm -f " + shellQuote(remoteArchive),
-	}, " && ")
-	if err := b.execShell(syncCtx, client, sandboxID, extract, io.Discard); err != nil {
+	if err := b.execShell(syncCtx, client, sandboxID, cloudflareExtractArchiveCommand(remoteArchive, workdir), io.Discard); err != nil {
 		return nil, 0, err
 	}
 	uploadDuration := b.now().Sub(uploadStarted)
@@ -168,6 +164,17 @@ func (b *cloudflareBackend) execShell(ctx context.Context, client *cloudflareCli
 		return exit(code, "%s exec %q exited %d", providerName, command, code)
 	}
 	return nil
+}
+
+func cloudflareExtractArchiveCommand(remoteArchive, workdir string) string {
+	return strings.Join([]string{
+		"tar -xzf " + shellQuote(remoteArchive) + " -C " + shellQuote(workdir),
+		"status=$?",
+		"rm -f " + shellQuote(remoteArchive),
+		"cleanup=$?",
+		`if [ "$status" -ne 0 ]; then exit "$status"; fi`,
+		`exit "$cleanup"`,
+	}, "; ")
 }
 
 func createCloudflareSyncArchive(ctx context.Context, repo Repo, manifest SyncManifest, stderr io.Writer) (*os.File, error) {

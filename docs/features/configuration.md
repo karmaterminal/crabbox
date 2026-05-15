@@ -280,9 +280,9 @@ Keep `CRABBOX_CLOUDFLARE_RUNNER_TOKEN` in the shell or credential manager.
 `CRABBOX_CLOUDFLARE_RUNNER_URL` can provide the runner URL from the
 environment. Repo config should select the runner URL and workdir, not hold
 bearer tokens.
-Container capacity is selected in the deployed Worker config, not per repo
-run. Update `worker/wrangler.cloudflare.jsonc` and redeploy the runner
-when changing `instance_type` or `max_instances`.
+`--type` can select one of the instance types wired into the deployed runner.
+Update `worker/wrangler.cloudflare.jsonc` and redeploy the runner when changing
+available `instance_type` bindings or `max_instances`.
 
 ### Semaphore
 

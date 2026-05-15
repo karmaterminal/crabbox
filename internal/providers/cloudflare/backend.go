@@ -32,6 +32,9 @@ type cloudflareBackend struct {
 func (b *cloudflareBackend) Spec() ProviderSpec { return b.spec }
 
 func (b *cloudflareBackend) Warmup(ctx context.Context, req WarmupRequest) error {
+	if req.ActionsRunner {
+		return exit(2, "--actions-runner is not supported for provider=%s", providerName)
+	}
 	started := b.now()
 	client, err := newCloudflareClient(b.cfg, b.rt)
 	if err != nil {
@@ -148,6 +151,9 @@ func (b *cloudflareBackend) Run(ctx context.Context, req RunRequest) (RunResult,
 		Env:       req.Env,
 		TimeoutMS: durationMillisecondsCeil(b.cfg.TTL),
 	}, b.rt.Stdout, b.rt.Stderr)
+	if commandErr != nil && exitCode == 0 {
+		exitCode = 1
+	}
 	commandDuration := b.now().Sub(commandStarted)
 	result := RunResult{
 		ExitCode:      exitCode,
@@ -448,7 +454,7 @@ func claimToServer(claim localClaim, state string) Server {
 
 func cloudflareReady(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "", "running", "ready", "started", "active", "healthy", "unknown":
+	case "ready", "started", "active", "healthy":
 		return true
 	default:
 		return false
@@ -457,7 +463,7 @@ func cloudflareReady(status string) bool {
 
 func cloudflareTerminalState(status string) bool {
 	state := strings.ToLower(strings.TrimSpace(status))
-	return state == "expired" || state == "stopped"
+	return state == "expired" || state == "stopped" || state == "stopped_with_code"
 }
 
 func durationSecondsCeil(duration time.Duration) int {

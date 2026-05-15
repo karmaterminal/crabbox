@@ -26,6 +26,8 @@ type Server = core.Server
 type Repo = core.Repo
 type SyncManifest = core.SyncManifest
 type ExitError = core.ExitError
+type FeatureSet = core.FeatureSet
+type Feature = core.Feature
 type timingReport = core.TimingReport
 type timingPhase = core.TimingPhase
 

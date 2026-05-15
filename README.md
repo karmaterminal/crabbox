@@ -196,7 +196,7 @@ Cloudflare standard  standard-4
 
 Override with `--type` or `CRABBOX_SERVER_TYPE` for a specific instance.
 Cloudflare also accepts `lite`, `basic`, `standard-1`, `standard-2`, and
-`standard-3` as explicit `--type` values.
+`standard-3` as smaller explicit `--type` values; `standard-4` is the default.
 Providers without a row either use provider-native capacity settings or reject
 class/type selection.
 

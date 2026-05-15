@@ -102,7 +102,19 @@ class SandboxBase extends Container {
     if (idleTimeoutSeconds !== undefined) meta.idleTimeoutSeconds = idleTimeoutSeconds;
     await this.ctx.storage.put(leaseMetaKey, meta);
     await this.scheduleCleanup(meta);
-    await this.ensureReady();
+    try {
+      await this.ensureReady();
+    } catch (error) {
+      const stopped: LeaseMetadata = {
+        ...meta,
+        state: "stopped",
+        stoppedAt: new Date().toISOString(),
+      };
+      await this.ctx.storage.put(leaseMetaKey, stopped);
+      this.deleteSchedules(cleanupCallback);
+      await this.destroy();
+      throw error;
+    }
 
     return json(leaseResponse(meta));
   }
@@ -138,21 +150,23 @@ class SandboxBase extends Container {
     if (!remotePath) return json({ error: "path must be absolute" }, 400);
     if (!request.body) return json({ error: "request body is required" }, 400);
 
-    const meta = await this.touchLease();
+    const meta = await this.beginExecution();
     if (meta.state !== "running") return expiredResponse(meta);
 
-    await this.ensureReady();
-    const uploadURL = new URL("http://container/v1/files");
-    uploadURL.searchParams.set("path", remotePath);
-    const response = await this.containerFetch(uploadURL, {
-      method: "POST",
-      body: request.body,
-      headers: {
-        "Content-Type": "application/octet-stream",
-      },
-    });
-    await this.touchLease();
-    return response;
+    try {
+      await this.ensureReady();
+      const uploadURL = new URL("http://container/v1/files");
+      uploadURL.searchParams.set("path", remotePath);
+      return await this.containerFetch(uploadURL, {
+        method: "POST",
+        body: request.body,
+        headers: {
+          "Content-Type": "application/octet-stream",
+        },
+      });
+    } finally {
+      await this.finishExecution();
+    }
   }
 
   private async execLeaseStream(request: Request): Promise<Response> {
@@ -167,8 +181,8 @@ class SandboxBase extends Container {
     const meta = await this.beginExecution();
     if (meta.state !== "running") return expiredResponse(meta);
 
-    await this.ensureReady();
     try {
+      await this.ensureReady();
       const response = await this.execContainer({
         command,
         cwd,
@@ -183,39 +197,43 @@ class SandboxBase extends Container {
   }
 
   private async beginExecution(): Promise<LeaseMetadata> {
-    const meta = await this.leaseMeta();
-    if (!meta) {
-      return emptyLeaseMeta("expired");
-    }
-    const expired = await this.expireIfNeeded(meta);
-    if (expired.state !== "running") return expired;
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const meta = await this.leaseMeta();
+      if (!meta) {
+        return emptyLeaseMeta("expired");
+      }
+      const expired = await this.expireIfNeeded(meta);
+      if (expired.state !== "running") return expired;
 
-    const active: LeaseMetadata = {
-      ...expired,
-      activeExecutions: (expired.activeExecutions ?? 0) + 1,
-      lastTouchedAt: new Date().toISOString(),
-    };
-    await this.ctx.storage.put(leaseMetaKey, active);
-    await this.scheduleCleanup(active);
-    return active;
+      const active: LeaseMetadata = {
+        ...expired,
+        activeExecutions: (expired.activeExecutions ?? 0) + 1,
+        lastTouchedAt: new Date().toISOString(),
+      };
+      await this.ctx.storage.put(leaseMetaKey, active);
+      await this.scheduleCleanup(active);
+      return active;
+    });
   }
 
   private async finishExecution(): Promise<void> {
-    const meta = await this.leaseMeta();
-    if (!meta || meta.state !== "running") return;
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const meta = await this.leaseMeta();
+      if (!meta || meta.state !== "running") return;
 
-    const activeExecutions = Math.max((meta.activeExecutions ?? 0) - 1, 0);
-    const touched: LeaseMetadata = {
-      ...meta,
-      lastTouchedAt: new Date().toISOString(),
-    };
-    if (activeExecutions > 0) {
-      touched.activeExecutions = activeExecutions;
-    } else {
-      delete touched.activeExecutions;
-    }
-    await this.ctx.storage.put(leaseMetaKey, touched);
-    await this.scheduleCleanup(touched);
+      const activeExecutions = Math.max((meta.activeExecutions ?? 0) - 1, 0);
+      const touched: LeaseMetadata = {
+        ...meta,
+        lastTouchedAt: new Date().toISOString(),
+      };
+      if (activeExecutions > 0) {
+        touched.activeExecutions = activeExecutions;
+      } else {
+        delete touched.activeExecutions;
+      }
+      await this.ctx.storage.put(leaseMetaKey, touched);
+      await this.scheduleCleanup(touched);
+    });
   }
 
   private async touchLease(): Promise<LeaseMetadata> {
@@ -292,7 +310,14 @@ class SandboxBase extends Container {
     const reader = response.body.getReader();
     const clientBody = new ReadableStream<Uint8Array>({
       pull: async (controller) => {
-        const next = await reader.read();
+        let next: ReadableStreamReadResult<Uint8Array>;
+        try {
+          next = await reader.read();
+        } catch (error) {
+          this.finishExecutionAfterResponse();
+          controller.error(error);
+          return;
+        }
         if (next.done) {
           controller.close();
           this.finishExecutionAfterResponse();
@@ -301,8 +326,11 @@ class SandboxBase extends Container {
         controller.enqueue(next.value);
       },
       cancel: async (reason) => {
-        await reader.cancel(reason);
-        this.finishExecutionAfterResponse();
+        try {
+          await reader.cancel(reason);
+        } finally {
+          this.finishExecutionAfterResponse();
+        }
       },
     });
     return new Response(clientBody, {

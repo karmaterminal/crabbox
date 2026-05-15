@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -23,12 +24,32 @@ func TestCloudflareProviderSpec(t *testing.T) {
 	if spec.Kind != "delegated-run" {
 		t.Fatalf("spec.Kind = %q, want delegated-run", spec.Kind)
 	}
-	if len(spec.Features) != 1 || spec.Features[0] != "archive-sync" {
-		t.Fatalf("spec.Features = %#v, want archive-sync", spec.Features)
+	if !hasCloudflareFeature(spec.Features, "archive-sync") || !hasCloudflareFeature(spec.Features, "cleanup") {
+		t.Fatalf("spec.Features = %#v, want archive-sync and cleanup", spec.Features)
 	}
 	if aliases := (Provider{}).Aliases(); len(aliases) != 1 || aliases[0] != "cf" {
 		t.Fatalf("aliases = %#v, want [cf]", aliases)
 	}
+}
+
+func TestCloudflareWarmupRejectsActionsRunner(t *testing.T) {
+	backend := &cloudflareBackend{rt: Runtime{Stdout: io.Discard, Stderr: io.Discard}}
+	err := backend.Warmup(context.Background(), WarmupRequest{ActionsRunner: true})
+	if err == nil {
+		t.Fatal("Warmup accepted --actions-runner")
+	}
+	if !strings.Contains(err.Error(), "--actions-runner is not supported") {
+		t.Fatalf("Warmup error = %v", err)
+	}
+}
+
+func hasCloudflareFeature(features FeatureSet, want Feature) bool {
+	for _, feature := range features {
+		if feature == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCloudflareWorkdirRejectsBroadPaths(t *testing.T) {
@@ -54,25 +75,34 @@ func TestCloudflareHealthyStateIsReady(t *testing.T) {
 	if !cloudflareReady("healthy") {
 		t.Fatal("healthy state should be ready")
 	}
+	if cloudflareReady("running") {
+		t.Fatal("running state should not be ready")
+	}
 }
 
-func TestCloudflareTokenFlagDoesNotDefaultToConfiguredSecret(t *testing.T) {
+func TestCloudflareStoppedWithCodeIsTerminal(t *testing.T) {
+	if !cloudflareTerminalState("stopped_with_code") {
+		t.Fatal("stopped_with_code state should be terminal")
+	}
+}
+
+func TestCloudflareTokenFlagIsNotRegistered(t *testing.T) {
 	cfg := Config{}
 	cfg.Cloudflare.Token = "secret-token"
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	values := RegisterCloudflareProviderFlags(fs, cfg).(cloudflareFlagValues)
-	if got := *values.Token; got != "" {
-		t.Fatalf("token flag default = %q, want empty", got)
+	RegisterCloudflareProviderFlags(fs, cfg)
+	if fs.Lookup("cloudflare-token") != nil {
+		t.Fatal("cloudflare-token flag registered")
 	}
 }
 
 func TestCloudflareFlagsApply(t *testing.T) {
 	cfg := Config{Provider: providerName}
+	cfg.Cloudflare.Token = "configured-token"
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	values := RegisterCloudflareProviderFlags(fs, cfg)
 	err := fs.Parse([]string{
 		"--cloudflare-url", "https://current.example",
-		"--cloudflare-token", "token",
 		"--cloudflare-workdir", "/workspace/current",
 	})
 	if err != nil {
@@ -81,7 +111,7 @@ func TestCloudflareFlagsApply(t *testing.T) {
 	if err := ApplyCloudflareProviderFlags(&cfg, fs, values); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Cloudflare.APIURL != "https://current.example" || cfg.Cloudflare.Token != "token" || cfg.Cloudflare.Workdir != "/workspace/current" {
+	if cfg.Cloudflare.APIURL != "https://current.example" || cfg.Cloudflare.Token != "configured-token" || cfg.Cloudflare.Workdir != "/workspace/current" {
 		t.Fatalf("cloudflare flags not applied: %#v", cfg.Cloudflare)
 	}
 }
@@ -263,6 +293,45 @@ func TestCloudflareClientExecStream(t *testing.T) {
 	}
 }
 
+func TestCloudflareRunReportsCommandErrorAsFailure(t *testing.T) {
+	execCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sandboxes/cbx_test/exec-stream" {
+			http.NotFound(w, r)
+			return
+		}
+		execCalls++
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		if execCalls == 1 {
+			_, _ = io.WriteString(w, `{"type":"complete","exitCode":0}`+"\n")
+			return
+		}
+		http.Error(w, "expired", http.StatusGone)
+	}))
+	defer server.Close()
+
+	var stderr bytes.Buffer
+	cfg := Config{}
+	cfg.Cloudflare.APIURL = server.URL
+	cfg.Cloudflare.Token = "token"
+	backend := cloudflareBackend{cfg: cfg, rt: Runtime{HTTP: server.Client(), Stderr: &stderr, Stdout: io.Discard}}
+	_, err := backend.Run(context.Background(), RunRequest{
+		ID:         "cbx_test",
+		NoSync:     true,
+		Command:    []string{"true"},
+		TimingJSON: true,
+	})
+	if err == nil {
+		t.Fatal("Run succeeded after command stream error")
+	}
+	if !strings.Contains(stderr.String(), "exit=1") {
+		t.Fatalf("stderr = %q, want summary exit=1", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `"exitCode":1`) {
+		t.Fatalf("stderr = %q, want timing exitCode=1", stderr.String())
+	}
+}
+
 func TestCloudflareClientUploadSendsContentLength(t *testing.T) {
 	var gotLength int64
 	var gotPath string
@@ -435,6 +504,26 @@ func TestCloudflareRemoteDiskCheckRejectsZeroOrUnknownAvailable(t *testing.T) {
 				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestCloudflareExtractArchiveCommandRemovesArchiveAfterFailure(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is required for extract cleanup command test")
+	}
+	dir := t.TempDir()
+	archive := dir + "/bad archive.tgz"
+	if err := os.WriteFile(archive, []byte("not a tar archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bash, "-lc", cloudflareExtractArchiveCommand(archive, dir))
+	err = cmd.Run()
+	if err == nil {
+		t.Fatal("expected invalid archive extraction to fail")
+	}
+	if _, statErr := os.Stat(archive); !os.IsNotExist(statErr) {
+		t.Fatalf("archive still exists after failed extract: %v", statErr)
 	}
 }
 
