@@ -126,6 +126,13 @@ because Crabbox tags hosts during `AllocateHosts`; scope it with
 the request path without creating a Dedicated Host. Use `admin aws-identity` to
 confirm which coordinator AWS principal needs the policy.
 
+IAM is not the only preflight. AWS tracks Dedicated Mac host capacity through
+separate EC2 Service Quotas such as
+[Running Dedicated mac2 Hosts](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html),
+which defaults to 0 and is adjustable. If `allocate --dry-run` succeeds but the
+real allocation fails, check the selected region's Dedicated Mac host quota
+before treating the failure as a Crabbox runtime bug.
+
 That host lifecycle policy is not the full macOS image policy. The later
 warmup, WebVNC, AMI create, candidate boot, promotion, and cleanup phases also
 need the normal brokered AWS provider permissions documented in

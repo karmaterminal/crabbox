@@ -202,6 +202,12 @@ crabbox admin aws-policy --mac-hosts
 crabbox admin mac-hosts policy
 ```
 
+If dry-run succeeds but real allocation fails, check the AWS EC2 Service Quotas
+entry for
+[Running Dedicated mac2 Hosts](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html)
+in the selected region. AWS lists that Dedicated Host quota as adjustable with a
+default of 0, so quota can be the next external blocker after IAM is fixed.
+
 Do not treat that host policy as the whole image bake policy. It only unblocks
 Dedicated Host allocation and release. The full paid lifecycle also needs the
 normal AWS provider permissions in [Infrastructure](../infrastructure.md#aws-ec2)
