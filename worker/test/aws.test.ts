@@ -470,6 +470,126 @@ describe("aws provider", () => {
     expect(result.server.hostID).toBe("h-mac1");
   });
 
+  it("discovers brokered macOS hosts in the configured subnet availability zone", async () => {
+    const describeSubnetParams: Record<string, string>[] = [];
+    const describeHostFilters: Record<string, string>[] = [];
+    const runParams: Record<string, string>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        if (new URL(request.url).hostname.startsWith("servicequotas.")) {
+          return new Response(JSON.stringify({ Quota: { Value: 999 } }), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+        const body = await request.clone().text();
+        const params = Object.fromEntries(new URLSearchParams(body));
+        const action = params.Action ?? "";
+        if (action === "DescribeKeyPairs") {
+          return ec2XMLResponse("<DescribeKeyPairsResponse />");
+        }
+        if (action === "DescribeSubnets") {
+          describeSubnetParams.push(params);
+          return ec2XMLResponse(`<?xml version="1.0" encoding="UTF-8"?>
+<DescribeSubnetsResponse>
+  <subnetSet>
+    <item>
+      <subnetId>subnet-123</subnetId>
+      <vpcId>vpc-123</vpcId>
+      <availabilityZone>eu-west-1b</availabilityZone>
+    </item>
+  </subnetSet>
+</DescribeSubnetsResponse>`);
+        }
+        if (action === "DescribeImages") {
+          return ec2XMLResponse(`<?xml version="1.0" encoding="UTF-8"?>
+<DescribeImagesResponse>
+  <imagesSet>
+    <item>
+      <imageId>ami-arm-mac</imageId>
+      <name>macos</name>
+      <imageState>available</imageState>
+      <creationDate>2026-05-01T00:00:00.000Z</creationDate>
+    </item>
+  </imagesSet>
+</DescribeImagesResponse>`);
+        }
+        if (action === "DescribeHosts") {
+          describeHostFilters.push(params);
+          return ec2XMLResponse(`<?xml version="1.0" encoding="UTF-8"?>
+<DescribeHostsResponse>
+  <hostSet>
+    <item>
+      <hostId>h-mac2-b</hostId>
+      <hostState>available</hostState>
+      <availabilityZone>eu-west-1b</availabilityZone>
+    </item>
+  </hostSet>
+</DescribeHostsResponse>`);
+        }
+        if (action === "RunInstances") {
+          runParams.push(params);
+          return ec2XMLResponse(`<?xml version="1.0" encoding="UTF-8"?>
+<RunInstancesResponse>
+  <instancesSet>
+    <item>
+      <instanceId>i-mac2</instanceId>
+      <instanceType>mac2.metal</instanceType>
+      <placement><hostId>h-mac2-b</hostId></placement>
+      <ipAddress>203.0.113.45</ipAddress>
+      <instanceState><name>pending</name></instanceState>
+    </item>
+  </instancesSet>
+</RunInstancesResponse>`);
+        }
+        return ec2XMLResponse(
+          `<Response><Errors><Error><Code>Unexpected</Code><Message>${action}</Message></Error></Errors></Response>`,
+          500,
+        );
+      }),
+    );
+
+    const client = new EC2SpotClient(
+      {
+        AWS_ACCESS_KEY_ID: "test",
+        AWS_SECRET_ACCESS_KEY: "secret",
+        CRABBOX_AWS_SECURITY_GROUP_ID: "sg-123",
+        CRABBOX_AWS_SUBNET_ID: "subnet-123",
+      } as never,
+      "eu-west-1",
+    );
+    const result = await client.createServerWithFallback(
+      leaseConfig({
+        provider: "aws",
+        target: "macos",
+        capacity: { market: "on-demand" },
+        serverType: "mac2.metal",
+        serverTypeExplicit: true,
+        sshPublicKey: "ssh-ed25519 test",
+      }),
+      "cbx_abcdef123456",
+      "violet-prawn",
+      "alice@example.com",
+    );
+
+    expect(describeSubnetParams[0]).toMatchObject({ "SubnetId.1": "subnet-123" });
+    expect(describeHostFilters[0]).toMatchObject({
+      "Filter.1.Name": "instance-type",
+      "Filter.1.Value.1": "mac2.metal",
+      "Filter.2.Name": "state",
+      "Filter.2.Value.1": "available",
+      "Filter.3.Name": "availability-zone",
+      "Filter.3.Value.1": "eu-west-1b",
+    });
+    expect(runParams[0]).toMatchObject({
+      "NetworkInterface.1.SubnetId": "subnet-123",
+      "Placement.HostId": "h-mac2-b",
+      "Placement.Tenancy": "host",
+    });
+    expect(result.server.hostID).toBe("h-mac2-b");
+  });
+
   it("waits for transient AMIs before launching from EBS snapshots", async () => {
     const client = new EC2SpotClient(
       { AWS_ACCESS_KEY_ID: "test", AWS_SECRET_ACCESS_KEY: "secret" } as never,

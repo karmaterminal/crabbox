@@ -890,6 +890,10 @@ export class EC2SpotClient {
       this.env.CRABBOX_HOST_ID ||
       this.env.CRABBOX_AWS_MAC_HOST_ID ||
       "";
+    const macHostAvailabilityZone =
+      config.target === "macos"
+        ? await this.macHostAvailabilityZoneForLaunch(config, subnetID)
+        : "";
     const run = async (macHostID: string): Promise<ProviderMachine> => {
       const params: Record<string, string> = {
         ClientToken: leaseID,
@@ -924,7 +928,9 @@ export class EC2SpotClient {
       }
       applyAWSRunInstanceTargetOptions(params, config);
       if (config.target === "macos") {
-        const hostID = macHostID || (await this.discoverMacHostID(config.serverType));
+        const hostID =
+          macHostID ||
+          (await this.discoverMacHostID(config.serverType, "", macHostAvailabilityZone));
         params["Placement.HostId"] = hostID;
         params["Placement.Tenancy"] = "host";
       } else if (!subnetID) {
@@ -948,7 +954,11 @@ export class EC2SpotClient {
       if (config.target !== "macos" || !configuredMacHostID || !isAWSInvalidHostIDError(message)) {
         throw error;
       }
-      const discovered = await this.discoverMacHostID(config.serverType, configuredMacHostID);
+      const discovered = await this.discoverMacHostID(
+        config.serverType,
+        configuredMacHostID,
+        macHostAvailabilityZone,
+      );
       return run(discovered);
     }
   }
@@ -1053,20 +1063,50 @@ export class EC2SpotClient {
     return groupID;
   }
 
-  private async discoverMacHostID(serverType: string, excludedHostID = ""): Promise<string> {
-    const root = await this.ec2("DescribeHosts", {
+  private async discoverMacHostID(
+    serverType: string,
+    excludedHostID = "",
+    availabilityZone = "",
+  ): Promise<string> {
+    const params: Record<string, string> = {
       "Filter.1.Name": "instance-type",
       "Filter.1.Value.1": serverType,
       "Filter.2.Name": "state",
       "Filter.2.Value.1": "available",
-    });
+    };
+    if (availabilityZone) {
+      params["Filter.3.Name"] = "availability-zone";
+      params["Filter.3.Value.1"] = availabilityZone;
+    }
+    const root = await this.ec2("DescribeHosts", params);
     const hostID = awsMacHostIDFromDescribeHosts(root, excludedHostID);
     if (!hostID) {
+      const zoneHint = availabilityZone ? ` in ${availabilityZone}` : "";
       throw new Error(
-        `no available EC2 Mac Dedicated Host found in ${this.region} for ${serverType}; allocate a host or set CRABBOX_HOST_ID`,
+        `no available EC2 Mac Dedicated Host found in ${this.region}${zoneHint} for ${serverType}; allocate a host or set CRABBOX_HOST_ID`,
       );
     }
     return hostID;
+  }
+
+  private async macHostAvailabilityZoneForLaunch(
+    config: LeaseConfig,
+    subnetID: string,
+  ): Promise<string> {
+    if (subnetID) {
+      return this.subnetAvailabilityZone(subnetID);
+    }
+    return awsAvailabilityZoneForRegion(config, this.env, this.region);
+  }
+
+  private async subnetAvailabilityZone(subnetID: string): Promise<string> {
+    const root = await this.ec2("DescribeSubnets", { "SubnetId.1": subnetID });
+    const subnet = record(items(record(root["subnetSet"])["item"])[0]);
+    const availabilityZone = asString(subnet["availabilityZone"]);
+    if (!availabilityZone) {
+      throw new Error(`AWS subnet not found: ${subnetID}`);
+    }
+    return availabilityZone;
   }
 
   private async describeMacHostsByID(hostIDs: string[]): Promise<AWSMacHost[]> {
