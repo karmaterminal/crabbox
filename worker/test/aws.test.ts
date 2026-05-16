@@ -14,6 +14,7 @@ import {
   awsQuotaCodeForMarket,
   awsQuotaPreflightAttempt,
   awsRegionCandidates,
+  awsReleaseHostsResult,
   crabboxSSHIngressRules,
   createSecurityGroupParams,
   isAWSInstanceCleanedAfterReadinessFailure,
@@ -193,13 +194,48 @@ describe("aws provider", () => {
     ).toBe("h-usable");
   });
 
-  it("parses EC2 host id sets from AllocateHosts and ReleaseHosts responses", () => {
+  it("parses EC2 host id sets from AllocateHosts responses", () => {
     expect(awsHostIDsFromSet({ item: "h-000000000001" })).toEqual(["h-000000000001"]);
     expect(
       awsHostIDsFromSet({
         item: [{ hostId: "h-000000000001" }, { hostId: "h-000000000002" }],
       }),
     ).toEqual(["h-000000000001", "h-000000000002"]);
+  });
+
+  it("parses EC2 ReleaseHosts successful and unsuccessful sets", () => {
+    expect(
+      awsReleaseHostsResult({
+        successful: { item: "h-000000000001" },
+        unsuccessful: "",
+      }),
+    ).toEqual({
+      successful: ["h-000000000001"],
+      unsuccessful: [],
+    });
+    expect(
+      awsReleaseHostsResult({
+        successful: "",
+        unsuccessful: {
+          item: {
+            resourceId: "h-000000000001",
+            error: {
+              code: "Client.InvalidHost.Occupied",
+              message: "Dedicated host cannot be released as it is occupied",
+            },
+          },
+        },
+      }),
+    ).toEqual({
+      successful: [],
+      unsuccessful: [
+        {
+          resourceID: "h-000000000001",
+          code: "Client.InvalidHost.Occupied",
+          message: "Dedicated host cannot be released as it is occupied",
+        },
+      ],
+    });
   });
 
   it("parses EC2 Mac instance type offerings by availability zone", () => {

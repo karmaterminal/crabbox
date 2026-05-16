@@ -71,6 +71,17 @@ export interface AWSMacHostAllocationDryRun {
   message: string;
 }
 
+export interface AWSReleaseHostFailure {
+  resourceID: string;
+  code: string;
+  message: string;
+}
+
+export interface AWSReleaseHostsResult {
+  successful: string[];
+  unsuccessful: AWSReleaseHostFailure[];
+}
+
 export interface AWSServiceQuota {
   serviceCode?: string;
   quotaCode: string;
@@ -567,18 +578,14 @@ export class EC2SpotClient {
     if (hostIDs.length === 0) {
       return [];
     }
-    const hosts = await this.describeMacHostsByID(hostIDs);
-    return hosts.length > 0
-      ? hosts
-      : hostIDs.map((id) => ({
-          id,
-          state: "available",
-          region: this.region,
-          availabilityZone,
-          instanceType: serverType,
-          autoPlacement: "off",
-          tags: {},
-        }));
+    const fallbackHosts = this.macHostsFromAllocatedIDs(hostIDs, availabilityZone, serverType);
+    let hosts: AWSMacHost[];
+    try {
+      hosts = await this.describeMacHostsByID(hostIDs);
+    } catch {
+      return fallbackHosts;
+    }
+    return hosts.length > 0 ? hosts : fallbackHosts;
   }
 
   async dryRunAllocateMacHost(
@@ -653,8 +660,17 @@ export class EC2SpotClient {
 
   async releaseMacHost(hostID: string): Promise<string[]> {
     const root = await this.ec2("ReleaseHosts", { "HostId.1": hostID });
-    const released = awsHostIDsFromSet(root["hostIdSet"]);
-    return released.length > 0 ? released : [hostID];
+    const result = awsReleaseHostsResult(root);
+    if (result.unsuccessful.length > 0) {
+      const details = result.unsuccessful.map((failure) =>
+        [failure.resourceID || hostID, failure.code, failure.message].filter(Boolean).join(": "),
+      );
+      throw new Error(`aws ReleaseHosts failed: ${details.join("; ")}`);
+    }
+    if (!result.successful.includes(hostID)) {
+      throw new Error(`aws ReleaseHosts did not confirm release for ${hostID}`);
+    }
+    return result.successful;
   }
 
   private allocateMacHostParams(
@@ -1063,6 +1079,22 @@ export class EC2SpotClient {
     return items(record(root["hostSet"])["item"]).map((host) => this.macHostFromDescribeHost(host));
   }
 
+  private macHostsFromAllocatedIDs(
+    hostIDs: string[],
+    availabilityZone: string,
+    serverType: string,
+  ): AWSMacHost[] {
+    return hostIDs.map((id) => ({
+      id,
+      state: "available",
+      region: this.region,
+      availabilityZone,
+      instanceType: serverType,
+      autoPlacement: "off",
+      tags: {},
+    }));
+  }
+
   private macHostFromDescribeHost(input: unknown): AWSMacHost {
     const host = record(input);
     const properties = record(host["hostProperties"]);
@@ -1346,6 +1378,24 @@ export function awsHostIDsFromSet(input: unknown): string[] {
   return items(record(input)["item"])
     .map((item) => asString(record(item)["hostId"]) || asString(item))
     .filter(Boolean);
+}
+
+export function awsReleaseHostsResult(root: Record<string, unknown>): AWSReleaseHostsResult {
+  const unsuccessful = items(record(root["unsuccessful"])["item"])
+    .map((item) => {
+      const failure = record(item);
+      const error = record(failure["error"]);
+      return {
+        resourceID: asString(failure["resourceId"]),
+        code: asString(error["code"]),
+        message: asString(error["message"]),
+      };
+    })
+    .filter((failure) => failure.resourceID || failure.code || failure.message);
+  return {
+    successful: awsHostIDsFromSet(root["successful"]),
+    unsuccessful,
+  };
 }
 
 export function awsMacHostOfferingsFromDescribeInstanceTypeOfferings(

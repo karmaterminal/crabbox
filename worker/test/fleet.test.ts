@@ -3256,6 +3256,166 @@ describe("fleet lease identity and idle", () => {
     });
   });
 
+  it("does not retry paid AWS EC2 Mac host allocation after AllocateHosts returns a host", async () => {
+    const actions: string[] = [];
+    const seenParams: Record<string, string>[] = [];
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+      async (input, init) => {
+        const params = new URLSearchParams(await requestBodyForTest(input, init));
+        const action = params.get("Action") ?? "";
+        actions.push(action);
+        seenParams.push(Object.fromEntries(params));
+        if (action === "DescribeInstanceTypeOfferings") {
+          return ec2XMLResponse(`<?xml version="1.0" encoding="UTF-8"?>
+          <DescribeInstanceTypeOfferingsResponse>
+            <instanceTypeOfferingSet>
+              <item>
+                <instanceType>mac2.metal</instanceType>
+                <location>eu-west-1a</location>
+                <locationType>availability-zone</locationType>
+              </item>
+              <item>
+                <instanceType>mac2.metal</instanceType>
+                <location>eu-west-1b</location>
+                <locationType>availability-zone</locationType>
+              </item>
+            </instanceTypeOfferingSet>
+          </DescribeInstanceTypeOfferingsResponse>`);
+        }
+        if (action === "AllocateHosts") {
+          return ec2XMLResponse(`<?xml version="1.0" encoding="UTF-8"?>
+          <AllocateHostsResponse>
+            <hostIdSet><item><hostId>h-000000000001</hostId></item></hostIdSet>
+          </AllocateHostsResponse>`);
+        }
+        if (action === "DescribeHosts") {
+          return ec2XMLResponse(
+            "<ErrorResponse><Error><Code>UnauthorizedOperation</Code></Error></ErrorResponse>",
+            403,
+          );
+        }
+        return ec2XMLResponse("<ErrorResponse />", 500);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const fleet = testFleet(
+      new MemoryStorage(),
+      {},
+      {
+        AWS_ACCESS_KEY_ID: "test",
+        AWS_SECRET_ACCESS_KEY: "test",
+        CRABBOX_AWS_REGION: "eu-west-1",
+      },
+    );
+
+    const response = await fleet.fetch(
+      request("POST", "/v1/admin/mac-hosts?region=eu-west-1", {
+        headers: { "x-crabbox-admin": "true" },
+        body: { type: "mac2.metal" },
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(actions).toEqual(["DescribeInstanceTypeOfferings", "AllocateHosts", "DescribeHosts"]);
+    expect(seenParams[1]).toMatchObject({
+      Action: "AllocateHosts",
+      AvailabilityZone: "eu-west-1a",
+      InstanceType: "mac2.metal",
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      availabilityZone: "eu-west-1a",
+      hosts: [{ id: "h-000000000001", instanceType: "mac2.metal" }],
+    });
+  });
+
+  it("releases AWS EC2 Mac Dedicated Hosts only when AWS confirms success", async () => {
+    const actions: string[] = [];
+    const seenParams: Record<string, string>[] = [];
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+      async (input, init) => {
+        const params = new URLSearchParams(await requestBodyForTest(input, init));
+        const action = params.get("Action") ?? "";
+        actions.push(action);
+        seenParams.push(Object.fromEntries(params));
+        if (action === "ReleaseHosts") {
+          return ec2XMLResponse(`<?xml version="1.0" encoding="UTF-8"?>
+          <ReleaseHostsResponse>
+            <unsuccessful/>
+            <successful><item>h-000000000001</item></successful>
+          </ReleaseHostsResponse>`);
+        }
+        return ec2XMLResponse("<ErrorResponse />", 500);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const fleet = testFleet(
+      new MemoryStorage(),
+      {},
+      {
+        AWS_ACCESS_KEY_ID: "test",
+        AWS_SECRET_ACCESS_KEY: "test",
+        CRABBOX_AWS_REGION: "eu-west-1",
+      },
+    );
+
+    const response = await fleet.fetch(
+      request("DELETE", "/v1/admin/mac-hosts/h-000000000001?region=eu-west-1", {
+        headers: { "x-crabbox-admin": "true" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(actions).toEqual(["ReleaseHosts"]);
+    expect(seenParams[0]).toMatchObject({
+      Action: "ReleaseHosts",
+      "HostId.1": "h-000000000001",
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      hostId: "h-000000000001",
+      released: ["h-000000000001"],
+    });
+  });
+
+  it("rejects AWS EC2 Mac host release when AWS reports an unsuccessful release", async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+      async () =>
+        ec2XMLResponse(`<?xml version="1.0" encoding="UTF-8"?>
+        <ReleaseHostsResponse>
+          <unsuccessful>
+            <item>
+              <resourceId>h-000000000001</resourceId>
+              <error>
+                <code>Client.InvalidHost.Occupied</code>
+                <message>Dedicated host cannot be released as it is occupied</message>
+              </error>
+            </item>
+          </unsuccessful>
+          <successful/>
+        </ReleaseHostsResponse>`),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const fleet = testFleet(
+      new MemoryStorage(),
+      {},
+      {
+        AWS_ACCESS_KEY_ID: "test",
+        AWS_SECRET_ACCESS_KEY: "test",
+        CRABBOX_AWS_REGION: "eu-west-1",
+      },
+    );
+
+    const response = await fleet.fetch(
+      request("DELETE", "/v1/admin/mac-hosts/h-000000000001?region=eu-west-1", {
+        headers: { "x-crabbox-admin": "true" },
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringContaining("Client.InvalidHost.Occupied"),
+    });
+  });
+
   it("rejects EC2 Mac host allocation when no availability zones are offered", async () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
       async () =>

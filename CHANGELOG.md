@@ -41,6 +41,7 @@
 
 - Fixed macOS image lifecycle region-preflight blockers so they preserve guarded IAM helper remediation commands from the region preflight evidence instead of falling back to manual account-match snippets.
 - Fixed macOS image lifecycle cleanup so script-allocated EC2 Mac Dedicated Hosts are released from failure traps when host release is requested.
+- Fixed EC2 Mac Dedicated Host allocation and release handling so paid host IDs returned by AWS are not retried in another availability zone after post-allocation describe failures, and failed `ReleaseHosts` results are surfaced instead of reported as released.
 - Fixed remote macOS screenshots against no-auth VNC servers by reading the RFB 3.8 security result before framebuffer negotiation.
 - Fixed external macOS AMI promotion so x86 Mac images are keyed by their described architecture instead of defaulting to Apple silicon metadata.
 - Fixed provider-neutral admin command errors so older coordinators report the neutral route and the legacy compatibility route that both returned 404.
