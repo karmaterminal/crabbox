@@ -245,12 +245,13 @@ test("macOS lifecycle smoke writes a blocked IAM summary before paid work", asyn
   assert.match(summary.blocker.message, /ec2:AllocateHosts/);
   assert.match(summary.blocker.message, /ec2:CreateTags/);
   assert.match(summary.blocker.remediation, /Apply the EC2 Mac host lifecycle policy/);
+  const providerIdentity = path.join(run.artifacts, "evidence", "provider-identity.json");
+  const macosImagePolicy = path.join(run.artifacts, "evidence", "macos-image-policy.json");
   assert.deepEqual(summary.blocker.commands, [
     "crabbox admin providers identity --provider aws --region eu-west-1",
     "crabbox admin providers policy --provider aws --target macos",
-    "coordinator_account=$(crabbox admin providers identity --provider aws --region eu-west-1 --json | jq -r .account)",
-    "local_account=$(aws sts get-caller-identity --query Account --output text)",
-    'test "$local_account" = "$coordinator_account"',
+    `scripts/apply-macos-image-iam-policy.sh --identity ${providerIdentity} --policy ${macosImagePolicy} --profile auto`,
+    `scripts/apply-macos-image-iam-policy.sh --identity ${providerIdentity} --policy ${macosImagePolicy} --profile auto --apply`,
     "crabbox admin hosts allocate --provider aws --target macos --region eu-west-1 --type mac2.metal --dry-run --json",
   ]);
   await assertFileContains(summary.evidence.providerIdentity, /crabbox-runner/);
@@ -296,12 +297,13 @@ test("macOS lifecycle smoke preserves quota IAM evidence when dry-run is also bl
   assert.match(summary.blocker.message, /ec2:AllocateHosts/);
   assert.match(summary.blocker.message, /quota preflight also failed/);
   assert.match(summary.blocker.remediation, /servicequotas:ListServiceQuotas/);
+  const providerIdentity = path.join(run.artifacts, "evidence", "provider-identity.json");
+  const macosImagePolicy = path.join(run.artifacts, "evidence", "macos-image-policy.json");
   assert.deepEqual(summary.blocker.commands, [
     "crabbox admin providers identity --provider aws --region eu-west-1",
     "crabbox admin providers policy --provider aws --target macos",
-    "coordinator_account=$(crabbox admin providers identity --provider aws --region eu-west-1 --json | jq -r .account)",
-    "local_account=$(aws sts get-caller-identity --query Account --output text)",
-    'test "$local_account" = "$coordinator_account"',
+    `scripts/apply-macos-image-iam-policy.sh --identity ${providerIdentity} --policy ${macosImagePolicy} --profile auto`,
+    `scripts/apply-macos-image-iam-policy.sh --identity ${providerIdentity} --policy ${macosImagePolicy} --profile auto --apply`,
     "crabbox admin hosts quota --provider aws --target macos --region eu-west-1 --type mac2.metal --json",
     "crabbox admin hosts allocate --provider aws --target macos --region eu-west-1 --type mac2.metal --dry-run --json",
   ]);

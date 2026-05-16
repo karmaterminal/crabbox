@@ -10,6 +10,7 @@ regions_raw="${CRABBOX_MACOS_REGIONS:-${CRABBOX_CAPACITY_REGIONS:-}}"
 region_preflight="${CRABBOX_MACOS_REGION_PREFLIGHT:-auto}"
 region_preflight_script="${CRABBOX_MACOS_REGION_PREFLIGHT_SCRIPT:-$ROOT/scripts/macos-host-region-preflight.sh}"
 region_preflight_command="${CRABBOX_MACOS_REGION_PREFLIGHT_COMMAND:-scripts/macos-host-region-preflight.sh}"
+iam_apply_command="${CRABBOX_MACOS_IAM_APPLY_COMMAND:-scripts/apply-macos-image-iam-policy.sh}"
 instance_type="${CRABBOX_MACOS_TYPE:-mac2.metal}"
 image_name="${CRABBOX_MACOS_IMAGE_NAME:-crabbox-macos-arm64-$(date -u +%Y%m%d-%H%M)}"
 ttl="${CRABBOX_MACOS_TTL:-2h}"
@@ -111,9 +112,8 @@ set_host_iam_remediation() {
   blocker_commands="$(printf '%s\n' \
     "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region" \
     "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos" \
-    "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region --json | jq -r .account)" \
-    "local_account=\$(aws sts get-caller-identity --query Account --output text)" \
-    "test \"\$local_account\" = \"\$coordinator_account\"" \
+    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto" \
+    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto --apply" \
     "$CRABBOX_REMEDIATION_BIN admin hosts allocate --provider aws --target macos --region $region --type $instance_type --dry-run --json")"
 }
 
@@ -122,9 +122,8 @@ set_quota_iam_remediation() {
   blocker_commands="$(printf '%s\n' \
     "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region" \
     "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos" \
-    "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region --json | jq -r .account)" \
-    "local_account=\$(aws sts get-caller-identity --query Account --output text)" \
-    "test \"\$local_account\" = \"\$coordinator_account\"" \
+    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto" \
+    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto --apply" \
     "$CRABBOX_REMEDIATION_BIN admin hosts quota --provider aws --target macos --region $region --type $instance_type --json")"
 }
 
@@ -133,9 +132,8 @@ set_host_and_quota_iam_remediation() {
   blocker_commands="$(printf '%s\n' \
     "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region" \
     "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos" \
-    "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region --json | jq -r .account)" \
-    "local_account=\$(aws sts get-caller-identity --query Account --output text)" \
-    "test \"\$local_account\" = \"\$coordinator_account\"" \
+    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto" \
+    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto --apply" \
     "$CRABBOX_REMEDIATION_BIN admin hosts quota --provider aws --target macos --region $region --type $instance_type --json" \
     "$CRABBOX_REMEDIATION_BIN admin hosts allocate --provider aws --target macos --region $region --type $instance_type --dry-run --json")"
 }
