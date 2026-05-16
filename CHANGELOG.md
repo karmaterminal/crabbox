@@ -6,6 +6,10 @@
 
 - Added an AWS orphan-audit script for trusted operators to find Crabbox-tagged EC2 instances left behind in old provider accounts after credential or account rotation.
 
+### Changed
+
+- Clarified AWS security guardrail docs so IAM Access Analyzer external-access analyzers are created in every configured capacity region, while S3 Block Public Access and IAM password policy remain account-level controls.
+
 ## 0.14.0 - 2026-05-15
 
 ### Added
