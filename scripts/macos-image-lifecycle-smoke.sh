@@ -108,35 +108,35 @@ preflight_blocker_from_stderr() {
 set_host_iam_remediation() {
   blocker_remediation="Apply the EC2 Mac host lifecycle policy to the coordinator AWS identity, verify the baseline AWS provider policy before paid image validation, then rerun the no-spend Mac host dry-run."
   blocker_commands="$(printf '%s\n' \
-    "$CRABBOX_REMEDIATION_BIN admin aws-identity --region $region" \
-    "$CRABBOX_REMEDIATION_BIN admin aws-policy --mac-hosts" \
-    "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin aws-identity --region $region --json | jq -r .account)" \
+    "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region" \
+    "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos" \
+    "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region --json | jq -r .account)" \
     "local_account=\$(aws sts get-caller-identity --query Account --output text)" \
     "test \"\$local_account\" = \"\$coordinator_account\"" \
-    "$CRABBOX_REMEDIATION_BIN admin mac-hosts allocate --region $region --type $instance_type --dry-run --json")"
+    "$CRABBOX_REMEDIATION_BIN admin hosts allocate --provider aws --target macos --region $region --type $instance_type --dry-run --json")"
 }
 
 set_quota_iam_remediation() {
-  blocker_remediation="Apply the combined AWS provider plus EC2 Mac host lifecycle policy printed by crabbox admin aws-policy --mac-hosts; it includes servicequotas:ListServiceQuotas for the quota preflight."
+  blocker_remediation="Apply the combined provider plus macOS host lifecycle policy printed by crabbox admin providers policy --provider aws --target macos; it includes servicequotas:ListServiceQuotas for the quota preflight."
   blocker_commands="$(printf '%s\n' \
-    "$CRABBOX_REMEDIATION_BIN admin aws-identity --region $region" \
-    "$CRABBOX_REMEDIATION_BIN admin aws-policy --mac-hosts" \
-    "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin aws-identity --region $region --json | jq -r .account)" \
+    "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region" \
+    "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos" \
+    "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region --json | jq -r .account)" \
     "local_account=\$(aws sts get-caller-identity --query Account --output text)" \
     "test \"\$local_account\" = \"\$coordinator_account\"" \
-    "$CRABBOX_REMEDIATION_BIN admin mac-hosts quota --region $region --type $instance_type --json")"
+    "$CRABBOX_REMEDIATION_BIN admin hosts quota --provider aws --target macos --region $region --type $instance_type --json")"
 }
 
 set_host_and_quota_iam_remediation() {
-  blocker_remediation="Apply the combined AWS provider plus EC2 Mac host lifecycle policy printed by crabbox admin aws-policy --mac-hosts, then rerun both the Mac host quota preflight and no-spend Mac host dry-run."
+  blocker_remediation="Apply the combined provider plus macOS host lifecycle policy printed by crabbox admin providers policy --provider aws --target macos, then rerun both the Mac host quota preflight and no-spend Mac host dry-run."
   blocker_commands="$(printf '%s\n' \
-    "$CRABBOX_REMEDIATION_BIN admin aws-identity --region $region" \
-    "$CRABBOX_REMEDIATION_BIN admin aws-policy --mac-hosts" \
-    "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin aws-identity --region $region --json | jq -r .account)" \
+    "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region" \
+    "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos" \
+    "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region --json | jq -r .account)" \
     "local_account=\$(aws sts get-caller-identity --query Account --output text)" \
     "test \"\$local_account\" = \"\$coordinator_account\"" \
-    "$CRABBOX_REMEDIATION_BIN admin mac-hosts quota --region $region --type $instance_type --json" \
-    "$CRABBOX_REMEDIATION_BIN admin mac-hosts allocate --region $region --type $instance_type --dry-run --json")"
+    "$CRABBOX_REMEDIATION_BIN admin hosts quota --provider aws --target macos --region $region --type $instance_type --json" \
+    "$CRABBOX_REMEDIATION_BIN admin hosts allocate --provider aws --target macos --region $region --type $instance_type --dry-run --json")"
 }
 
 capture_preflight_command() {
@@ -396,7 +396,7 @@ release_host_if_requested() {
   local label="$1"
   [[ "$release_host" == "1" && -n "$allocated_host" ]] || return 0
   wait_for_host_available "$allocated_host" "$label"
-  run "$CRABBOX_BIN" admin mac-hosts release "$allocated_host" --region "$region" --force
+  run "$CRABBOX_BIN" admin hosts release "$allocated_host" --provider aws --target macos --region "$region" --force
   host_released=1
   allocated_host=""
 }
@@ -516,9 +516,9 @@ select_region_from_preflight() {
     blocker_message="$(jq -r '.blocker.message // "no configured macOS region is ready"' "$region_preflight_log" 2>/dev/null || printf 'no configured macOS region is ready')"
     blocker_remediation="$(jq -r '.blocker.remediation // "Rerun the macOS region preflight after IAM, quota, or host availability changes."' "$region_preflight_log" 2>/dev/null || printf 'Rerun the macOS region preflight after IAM, quota, or host availability changes.')"
     blocker_commands="$(printf '%s\n' \
-      "$CRABBOX_REMEDIATION_BIN admin aws-identity --region $region" \
-      "$CRABBOX_REMEDIATION_BIN admin aws-policy --mac-hosts" \
-      "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin aws-identity --region $region --json | jq -r .account)" \
+      "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region" \
+      "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos" \
+      "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region --json | jq -r .account)" \
       "local_account=\$(aws sts get-caller-identity --query Account --output text)" \
       "test \"\$local_account\" = \"\$coordinator_account\"" \
       "$region_preflight_command")"
@@ -546,7 +546,7 @@ select_region_from_preflight() {
 
 mac_host_state() {
   local host="$1"
-  "$CRABBOX_BIN" admin mac-hosts list --region "$region" --type "$instance_type" --json |
+  "$CRABBOX_BIN" admin hosts list --provider aws --target macos --region "$region" --type "$instance_type" --json |
     jq -r --arg host "$host" '[.[] | select(.id == $host) | .state][0] // empty'
 }
 
@@ -682,13 +682,13 @@ set_evidence_paths
 select_region_from_preflight
 write_summary running preflight
 printf 'macOS lifecycle smoke region=%s type=%s image=%s host-wait=%s\n' "$region" "$instance_type" "$image_name" "$host_wait_timeout"
-preflight_command provider-policy "aws provider policy" "$aws_policy_log" "$CRABBOX_BIN" admin aws-policy
-preflight_command mac-host-policy "mac host policy" "$mac_host_policy_log" "$CRABBOX_BIN" admin mac-hosts policy
-preflight_command macos-image-policy "macOS image policy" "$macos_image_policy_log" "$CRABBOX_BIN" admin aws-policy --mac-hosts
+preflight_command provider-policy "aws provider policy" "$aws_policy_log" "$CRABBOX_BIN" admin providers policy --provider aws
+preflight_command mac-host-policy "mac host policy" "$mac_host_policy_log" "$CRABBOX_BIN" admin hosts policy --provider aws --target macos
+preflight_command macos-image-policy "macOS image policy" "$macos_image_policy_log" "$CRABBOX_BIN" admin providers policy --provider aws --target macos
 offerings_log="$evidence_dir/mac-host-offerings.txt"
 hosts_log="$evidence_dir/mac-host-list.json"
-preflight_command host-offerings "mac host offerings" "$offerings_log" "$CRABBOX_BIN" admin mac-hosts offerings --region "$region" --type "$instance_type"
-preflight_command host-list "mac host list" "$hosts_log" "$CRABBOX_BIN" admin mac-hosts list --region "$region" --type "$instance_type" --json
+preflight_command host-offerings "mac host offerings" "$offerings_log" "$CRABBOX_BIN" admin hosts offerings --provider aws --target macos --region "$region" --type "$instance_type"
+preflight_command host-list "mac host list" "$hosts_log" "$CRABBOX_BIN" admin hosts list --provider aws --target macos --region "$region" --type "$instance_type" --json
 hosts_json="$(cat "$hosts_log")"
 printf '%s\n' "$hosts_json" | jq .
 
@@ -713,13 +713,13 @@ else
   summary_phase="host-quota"
   quota_log="$evidence_dir/mac-host-quota.json"
   set +e
-  capture_preflight_command host-quota "mac host quota" "$quota_log" "$CRABBOX_BIN" admin mac-hosts quota --region "$region" --type "$instance_type" --json
+  capture_preflight_command host-quota "mac host quota" "$quota_log" "$CRABBOX_BIN" admin hosts quota --provider aws --target macos --region "$region" --type "$instance_type" --json
   quota_status=$?
   set -e
 
   summary_phase="host-dry-run"
   dry_log="$evidence_dir/mac-host-dry-run.json"
-  preflight_command host-dry-run "mac host dry-run" "$dry_log" "$CRABBOX_BIN" admin mac-hosts allocate --region "$region" --type "$instance_type" --dry-run --json
+  preflight_command host-dry-run "mac host dry-run" "$dry_log" "$CRABBOX_BIN" admin hosts allocate --provider aws --target macos --region "$region" --type "$instance_type" --dry-run --json
   if ! jq -e 'any(.[]; .ok == true)' "$dry_log" >/dev/null; then
     blocker_message="$(jq -r '[.[] | select(.ok != true) | .message] | unique | join("; ")' "$dry_log")"
     if grep -q 'UnauthorizedOperation' "$dry_log"; then
@@ -775,7 +775,7 @@ else
 
   summary_phase="host-allocation"
   allocate_log="$evidence_dir/mac-host-allocate.json"
-  run_tee "$allocate_log" "$CRABBOX_BIN" admin mac-hosts allocate --region "$region" --type "$instance_type" --force --json
+  run_tee "$allocate_log" "$CRABBOX_BIN" admin hosts allocate --provider aws --target macos --region "$region" --type "$instance_type" --force --json
   allocated_host="$(jq -r '.[0].id // empty' "$allocate_log")"
   if [[ -z "$allocated_host" ]]; then
     blocker_message="mac host allocation did not return a host id"
@@ -788,7 +788,7 @@ fi
 
 if [[ -n "$allocated_host" ]]; then
   printf 'pinning macOS leases to EC2 Mac Dedicated Host: %s\n' "$allocated_host"
-  export CRABBOX_AWS_MAC_HOST_ID="$allocated_host"
+  export CRABBOX_HOST_ID="$allocated_host"
 fi
 
 if [[ "$release_host" == "1" && -n "$allocated_host" && "$host_allocated_by_script" != "1" && "${CRABBOX_MACOS_RELEASE_EXISTING_HOST:-0}" != "1" ]]; then

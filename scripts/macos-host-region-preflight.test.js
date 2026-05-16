@@ -29,7 +29,7 @@ for ((i = 1; i <= $#; i++)); do
   fi
 done
 
-if [[ "$1" == "admin" && "$2" == "mac-hosts" ]]; then
+if [[ "$1" == "admin" && ( "$2" == "mac-hosts" || "$2" == "hosts" ) ]]; then
   case "$3" in
     list)
       if [[ "\${CRABBOX_FAKE_EXISTING_REGION:-}" == "$region" && "\${CRABBOX_FAKE_EXISTING_TYPE:-mac2.metal}" == "$type" ]]; then
@@ -170,9 +170,9 @@ test("macOS host region preflight blocks when dry-run succeeds but quota is unav
   assert.equal(summary.regions[0].dryRun.ok, true);
   assert.equal(summary.regions[0].quota.ok, false);
   assert.deepEqual(summary.blocker.commands, [
-    "crabbox admin aws-identity --region us-west-2",
-    "crabbox admin aws-policy --mac-hosts",
-    "coordinator_account=$(crabbox admin aws-identity --region us-west-2 --json | jq -r .account)",
+    "crabbox admin providers identity --provider aws --region us-west-2",
+    "crabbox admin providers policy --provider aws --target macos",
+    "coordinator_account=$(crabbox admin providers identity --provider aws --region us-west-2 --json | jq -r .account)",
     "local_account=$(aws sts get-caller-identity --query Account --output text)",
     'test "$local_account" = "$coordinator_account"',
     "scripts/macos-host-region-preflight.sh",
@@ -196,9 +196,9 @@ test("macOS host region preflight blocks when every region is unavailable", asyn
   assert.match(summary.regions[1].dryRun.output, /no_mac_host_offerings/);
   assert.match(summary.regions[0].quota.output, /Running Dedicated mac2 Hosts/);
   assert.deepEqual(summary.blocker.commands, [
-    "crabbox admin aws-identity --region eu-west-1",
-    "crabbox admin aws-policy --mac-hosts",
-    "coordinator_account=$(crabbox admin aws-identity --region eu-west-1 --json | jq -r .account)",
+    "crabbox admin providers identity --provider aws --region eu-west-1",
+    "crabbox admin providers policy --provider aws --target macos",
+    "coordinator_account=$(crabbox admin providers identity --provider aws --region eu-west-1 --json | jq -r .account)",
     "local_account=$(aws sts get-caller-identity --query Account --output text)",
     'test "$local_account" = "$coordinator_account"',
     "scripts/macos-host-region-preflight.sh",

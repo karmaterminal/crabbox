@@ -50,21 +50,21 @@ trap 'rm -f "$tmp"' EXIT
 for instance_type in "${instance_types[@]}"; do
 for region in "${regions[@]}"; do
   list_status=0
-  list_output="$("$CRABBOX_BIN" admin mac-hosts list --region "$region" --type "$instance_type" --json 2>&1)" || list_status=$?
+  list_output="$("$CRABBOX_BIN" admin hosts list --provider aws --target macos --region "$region" --type "$instance_type" --json 2>&1)" || list_status=$?
   existing_host=""
   if [[ "$list_status" -eq 0 ]]; then
     existing_host="$(printf '%s\n' "$list_output" | jq -r --arg type "$instance_type" '[.[] | select(.instanceType == $type and .state == "available") | .id][0] // empty' 2>/dev/null || true)"
   fi
 
   dry_status=0
-  dry_output="$("$CRABBOX_BIN" admin mac-hosts allocate --region "$region" --type "$instance_type" --dry-run --json 2>&1)" || dry_status=$?
+  dry_output="$("$CRABBOX_BIN" admin hosts allocate --provider aws --target macos --region "$region" --type "$instance_type" --dry-run --json 2>&1)" || dry_status=$?
   dry_ok=false
   if [[ "$dry_status" -eq 0 ]] && printf '%s\n' "$dry_output" | jq -e 'any(.[]; .ok == true)' >/dev/null 2>&1; then
     dry_ok=true
   fi
 
   quota_status=0
-  quota_output="$("$CRABBOX_BIN" admin mac-hosts quota --region "$region" --type "$instance_type" --json 2>&1)" || quota_status=$?
+  quota_output="$("$CRABBOX_BIN" admin hosts quota --provider aws --target macos --region "$region" --type "$instance_type" --json 2>&1)" || quota_status=$?
   quota_ok=false
   if [[ "$quota_status" -eq 0 ]] && printf '%s\n' "$quota_output" | jq -e 'any(.[]; (.value // 0) >= 1)' >/dev/null 2>&1; then
     quota_ok=true
@@ -109,9 +109,9 @@ instance_types_json="$(printf '%s\n' "${instance_types[@]}" | jq -R . | jq -s .)
 remediation_region="${regions[0]}"
 blocker_commands_json="$(
   printf '%s\n' \
-    "$CRABBOX_REMEDIATION_BIN admin aws-identity --region $remediation_region" \
-    "$CRABBOX_REMEDIATION_BIN admin aws-policy --mac-hosts" \
-    "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin aws-identity --region $remediation_region --json | jq -r .account)" \
+    "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $remediation_region" \
+    "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos" \
+    "coordinator_account=\$($CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $remediation_region --json | jq -r .account)" \
     "local_account=\$(aws sts get-caller-identity --query Account --output text)" \
     "test \"\$local_account\" = \"\$coordinator_account\"" \
     "$CRABBOX_REGION_PREFLIGHT_COMMAND" |
@@ -146,7 +146,7 @@ summary="$(
       blocker:
         (if $existing == null and $ready == null then {
           message: "no configured region/type has an available EC2 Mac Dedicated Host or quota-backed no-spend allocation dry-run",
-          remediation: "Apply crabbox admin aws-policy --mac-hosts to the coordinator AWS identity, verify regional EC2 Mac Dedicated Host quota, then rerun this preflight before paid allocation.",
+          remediation: "Apply crabbox admin providers policy --provider aws --target macos to the coordinator AWS identity, verify regional EC2 Mac Dedicated Host quota, then rerun this preflight before paid allocation.",
           commands: $blockerCommands
         } else null end),
       regions: $regions

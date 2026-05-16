@@ -33,6 +33,15 @@ for ((i = 1; i <= $#; i++)); do
   fi
 done
 
+if [[ "$1" == "admin" && "$2" == "providers" && "$3" == "policy" ]]; then
+  if [[ " $* " == *" --target macos "* || " $* " == *" --host-lifecycle "* ]]; then
+    printf '{"Statement":[{"Action":["ec2:RunInstances","ec2:AllocateHosts"]}]}\\n'
+  else
+    printf '{"Statement":[{"Action":"ec2:RunInstances"}]}\\n'
+  fi
+  exit 0
+fi
+
 if [[ "$1" == "admin" && "$2" == "aws-policy" ]]; then
   if [[ " $* " == *" --mac-hosts "* ]]; then
     printf '{"Statement":[{"Action":["ec2:RunInstances","ec2:AllocateHosts"]}]}\\n'
@@ -42,7 +51,7 @@ if [[ "$1" == "admin" && "$2" == "aws-policy" ]]; then
   exit 0
 fi
 
-if [[ "$1" == "admin" && "$2" == "mac-hosts" ]]; then
+if [[ "$1" == "admin" && ( "$2" == "mac-hosts" || "$2" == "hosts" ) ]]; then
   case "$3" in
     policy)
       printf '{"Statement":[{"Action":"ec2:AllocateHosts"}]}\\n'
@@ -232,12 +241,12 @@ test("macOS lifecycle smoke writes a blocked IAM summary before paid work", asyn
   assert.match(summary.blocker.message, /ec2:CreateTags/);
   assert.match(summary.blocker.remediation, /Apply the EC2 Mac host lifecycle policy/);
   assert.deepEqual(summary.blocker.commands, [
-    "crabbox admin aws-identity --region eu-west-1",
-    "crabbox admin aws-policy --mac-hosts",
-    "coordinator_account=$(crabbox admin aws-identity --region eu-west-1 --json | jq -r .account)",
+    "crabbox admin providers identity --provider aws --region eu-west-1",
+    "crabbox admin providers policy --provider aws --target macos",
+    "coordinator_account=$(crabbox admin providers identity --provider aws --region eu-west-1 --json | jq -r .account)",
     "local_account=$(aws sts get-caller-identity --query Account --output text)",
     'test "$local_account" = "$coordinator_account"',
-    "crabbox admin mac-hosts allocate --region eu-west-1 --type mac2.metal --dry-run --json",
+    "crabbox admin hosts allocate --provider aws --target macos --region eu-west-1 --type mac2.metal --dry-run --json",
   ]);
   await assertFileContains(summary.evidence.awsProviderPolicy, /ec2:RunInstances/);
   await assertFileContains(summary.evidence.macHostPolicy, /ec2:AllocateHosts/);
@@ -282,13 +291,13 @@ test("macOS lifecycle smoke preserves quota IAM evidence when dry-run is also bl
   assert.match(summary.blocker.message, /quota preflight also failed/);
   assert.match(summary.blocker.remediation, /servicequotas:ListServiceQuotas/);
   assert.deepEqual(summary.blocker.commands, [
-    "crabbox admin aws-identity --region eu-west-1",
-    "crabbox admin aws-policy --mac-hosts",
-    "coordinator_account=$(crabbox admin aws-identity --region eu-west-1 --json | jq -r .account)",
+    "crabbox admin providers identity --provider aws --region eu-west-1",
+    "crabbox admin providers policy --provider aws --target macos",
+    "coordinator_account=$(crabbox admin providers identity --provider aws --region eu-west-1 --json | jq -r .account)",
     "local_account=$(aws sts get-caller-identity --query Account --output text)",
     'test "$local_account" = "$coordinator_account"',
-    "crabbox admin mac-hosts quota --region eu-west-1 --type mac2.metal --json",
-    "crabbox admin mac-hosts allocate --region eu-west-1 --type mac2.metal --dry-run --json",
+    "crabbox admin hosts quota --provider aws --target macos --region eu-west-1 --type mac2.metal --json",
+    "crabbox admin hosts allocate --provider aws --target macos --region eu-west-1 --type mac2.metal --dry-run --json",
   ]);
   await assertFileContains(summary.evidence.hostQuota, /servicequotas:ListServiceQuotas/);
   await assertFileContains(summary.evidence.hostDryRun, /UnauthorizedOperation/);
@@ -317,8 +326,8 @@ test("macOS lifecycle smoke blocks on missing Mac host quota before paid work", 
   assert.equal(summary.evidence.hostAllocate, null);
 
   const fakeLog = await readFile(run.fakeLog, "utf8");
-  assert.match(fakeLog, /^admin mac-hosts quota --region eu-west-1 --type mac2\.metal --json$/m);
-  assert.doesNotMatch(fakeLog, /^admin mac-hosts allocate --region eu-west-1 --type mac2\.metal --force --json$/m);
+  assert.match(fakeLog, /^admin hosts quota --provider aws --target macos --region eu-west-1 --type mac2\.metal --json$/m);
+  assert.doesNotMatch(fakeLog, /^admin hosts allocate --provider aws --target macos --region eu-west-1 --type mac2\.metal --force --json$/m);
 });
 
 test("macOS lifecycle smoke selects a dry-run-ready configured region before paid work", async () => {
@@ -343,9 +352,9 @@ test("macOS lifecycle smoke selects a dry-run-ready configured region before pai
   await assertFileContains(summary.evidence.regionPreflight, /"selectedRegion": "us-west-2"/);
 
   const fakeLog = await readFile(run.fakeLog, "utf8");
-  assert.match(fakeLog, /^admin mac-hosts allocate --region eu-west-1 --type mac2\.metal --dry-run --json$/m);
-  assert.match(fakeLog, /^admin mac-hosts allocate --region us-west-2 --type mac2\.metal --dry-run --json$/m);
-  assert.match(fakeLog, /^admin mac-hosts quota --region us-west-2 --type mac2\.metal --json$/m);
+  assert.match(fakeLog, /^admin hosts allocate --provider aws --target macos --region eu-west-1 --type mac2\.metal --dry-run --json$/m);
+  assert.match(fakeLog, /^admin hosts allocate --provider aws --target macos --region us-west-2 --type mac2\.metal --dry-run --json$/m);
+  assert.match(fakeLog, /^admin hosts quota --provider aws --target macos --region us-west-2 --type mac2\.metal --json$/m);
 });
 
 test("macOS lifecycle smoke adopts the type selected by region preflight", async () => {
@@ -372,8 +381,8 @@ test("macOS lifecycle smoke adopts the type selected by region preflight", async
   await assertFileContains(summary.evidence.regionPreflight, /"selectedInstanceType": "mac1.metal"/);
 
   const fakeLog = await readFile(run.fakeLog, "utf8");
-  assert.match(fakeLog, /^admin mac-hosts allocate --region us-west-2 --type mac1\.metal --dry-run --json$/m);
-  assert.match(fakeLog, /^admin mac-hosts quota --region us-west-2 --type mac1\.metal --json$/m);
+  assert.match(fakeLog, /^admin hosts allocate --provider aws --target macos --region us-west-2 --type mac1\.metal --dry-run --json$/m);
+  assert.match(fakeLog, /^admin hosts quota --provider aws --target macos --region us-west-2 --type mac1\.metal --json$/m);
 });
 
 test("macOS lifecycle smoke preserves full mock lifecycle evidence", async () => {
@@ -429,6 +438,6 @@ test("macOS lifecycle smoke preserves full mock lifecycle evidence", async () =>
   assert.equal((fakeLog.match(/^warmup\b/gm) ?? []).length, 3);
   assert.equal((fakeLog.match(/^webvnc daemon start\b/gm) ?? []).length, 3);
   assert.equal((fakeLog.match(/^webvnc status\b/gm) ?? []).length, 3);
-  assert.match(fakeLog, /^admin mac-hosts quota --region eu-west-1 --type mac2\.metal --json$/m);
-  assert.match(fakeLog, /^admin mac-hosts release h-mock --region eu-west-1 --force$/m);
+  assert.match(fakeLog, /^admin hosts quota --provider aws --target macos --region eu-west-1 --type mac2\.metal --json$/m);
+  assert.match(fakeLog, /^admin hosts release h-mock --provider aws --target macos --region eu-west-1 --force$/m);
 });
