@@ -115,6 +115,15 @@ set_quota_iam_remediation() {
     "$CRABBOX_BIN admin mac-hosts quota --region $region --type $instance_type --json")"
 }
 
+set_host_and_quota_iam_remediation() {
+  blocker_remediation="Apply the combined AWS provider plus EC2 Mac host lifecycle policy printed by crabbox admin aws-policy --mac-hosts, then rerun both the Mac host quota preflight and no-spend Mac host dry-run."
+  blocker_commands="$(printf '%s\n' \
+    "$CRABBOX_BIN admin aws-identity --region $region" \
+    "$CRABBOX_BIN admin aws-policy --mac-hosts" \
+    "$CRABBOX_BIN admin mac-hosts quota --region $region --type $instance_type --json" \
+    "$CRABBOX_BIN admin mac-hosts allocate --region $region --type $instance_type --dry-run --json")"
+}
+
 capture_preflight_command() {
   local phase="$1"
   local label="$2"
@@ -625,11 +634,19 @@ else
   if ! jq -e 'any(.[]; .ok == true)' "$dry_log" >/dev/null; then
     blocker_message="$(jq -r '[.[] | select(.ok != true) | .message] | unique | join("; ")' "$dry_log")"
     if grep -q 'UnauthorizedOperation' "$dry_log"; then
-      set_host_iam_remediation
+      if [[ "$quota_status" -ne 0 ]]; then
+        set_host_and_quota_iam_remediation
+      else
+        set_host_iam_remediation
+      fi
     fi
     if [[ "$quota_status" -ne 0 ]]; then
       blocker_message="$blocker_message; mac host quota preflight also failed"
-      blocker_remediation="$blocker_remediation Also verify servicequotas:ListServiceQuotas from the combined AWS policy."
+      if [[ -z "$blocker_remediation" ]]; then
+        set_quota_iam_remediation
+      elif [[ "$blocker_remediation" != *"servicequotas:ListServiceQuotas"* ]]; then
+        blocker_remediation="$blocker_remediation Also verify servicequotas:ListServiceQuotas from the combined AWS policy."
+      fi
     fi
     printf 'macOS lifecycle blocked before paid work: EC2 Mac host dry-run did not succeed.\n' >&2
     write_summary blocked host-dry-run

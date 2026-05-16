@@ -15,6 +15,7 @@
 - Fixed the macOS image lifecycle summary so evidence paths and artifact directories are only populated after the matching files are captured.
 - Fixed the macOS image lifecycle smoke so blocked preflight summaries classify completed stderr captures instead of racing streamed output.
 - Fixed the macOS image lifecycle smoke so Mac host quota preflight failures are preserved as evidence even when EC2 Mac host dry-run is also blocked.
+- Fixed the macOS image lifecycle smoke so combined quota and EC2 Mac host dry-run IAM blockers include rerun commands for both preflights.
 - Added `crabbox admin mac-hosts quota` and a guarded lifecycle smoke preflight so EC2 Mac Dedicated Host quota is checked before paid host allocation.
 - Added a macOS image lifecycle `summary.json` artifact with the run phase, host id, lease ids, AMI id, and artifact paths for blocked, partial, and completed runs.
 - Added remediation text and commands to blocked macOS image lifecycle summaries so IAM and coordinator preflight failures are actionable from the artifact.

@@ -263,6 +263,12 @@ test("macOS lifecycle smoke preserves quota IAM evidence when dry-run is also bl
   assert.match(summary.blocker.message, /ec2:AllocateHosts/);
   assert.match(summary.blocker.message, /quota preflight also failed/);
   assert.match(summary.blocker.remediation, /servicequotas:ListServiceQuotas/);
+  assert.deepEqual(summary.blocker.commands, [
+    `${run.fake} admin aws-identity --region eu-west-1`,
+    `${run.fake} admin aws-policy --mac-hosts`,
+    `${run.fake} admin mac-hosts quota --region eu-west-1 --type mac2.metal --json`,
+    `${run.fake} admin mac-hosts allocate --region eu-west-1 --type mac2.metal --dry-run --json`,
+  ]);
   await assertFileContains(summary.evidence.hostQuota, /servicequotas:ListServiceQuotas/);
   await assertFileContains(summary.evidence.hostDryRun, /UnauthorizedOperation/);
 });
