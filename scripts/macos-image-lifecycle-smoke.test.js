@@ -215,8 +215,8 @@ test("macOS lifecycle smoke reports a missing coordinator mac-host endpoint befo
   const summary = await readJSON(path.join(run.artifacts, "summary.json"));
   assert.equal(summary.result, "blocked");
   assert.equal(summary.phase, "host-offerings");
-  assert.match(summary.blocker.message, /does not expose EC2 Mac host lifecycle admin endpoints/);
-  assert.match(summary.blocker.message, /\/v1\/admin\/mac-hosts/);
+  assert.match(summary.blocker.message, /does not expose provider-neutral host lifecycle admin endpoints/);
+  assert.match(summary.blocker.remediation, /\/v1\/admin\/hosts/);
   assert.match(summary.blocker.remediation, /Deploy a coordinator/);
 });
 
