@@ -947,9 +947,13 @@ describe("fleet lease identity and idle", () => {
       promotedAt: "2026-05-01T12:46:00Z",
     });
     const seenAMI: string[] = [];
+    const seenPromotedAMI: string[] = [];
     const fleet = testFleet(storage, {
       aws: fakeProvider((config) => {
         seenAMI.push(config.awsAMI);
+        seenPromotedAMI.push(
+          config.awsPromotedAMIs[awsPromotedAMIConfigKey("eu-west-1", "mac2.metal")] ?? "",
+        );
       }),
     });
 
@@ -987,7 +991,8 @@ describe("fleet lease identity and idle", () => {
       }),
     );
     expect(macos.status).toBe(201);
-    expect(seenAMI).toEqual(["", "ami-macos"]);
+    expect(seenAMI).toEqual(["", ""]);
+    expect(seenPromotedAMI).toEqual(["", "ami-macos"]);
   });
 
   it("uses server-type scoped promoted AWS macOS images when creating leases", async () => {
@@ -1012,10 +1017,13 @@ describe("fleet lease identity and idle", () => {
       architecture: "arm64_mac",
       promotedAt: "2026-05-01T12:47:00Z",
     });
-    const seenAMI: string[] = [];
+    const seenPromotedAMI: string[] = [];
     const fleet = testFleet(storage, {
       aws: fakeProvider((config) => {
-        seenAMI.push(config.awsAMI);
+        seenPromotedAMI.push(
+          config.awsPromotedAMIs[awsPromotedAMIConfigKey(config.awsRegion, config.serverType)] ??
+            "",
+        );
       }),
     });
 
@@ -1054,7 +1062,7 @@ describe("fleet lease identity and idle", () => {
 
     expect(mac2.status).toBe(201);
     expect(m4.status).toBe(201);
-    expect(seenAMI).toEqual(["ami-mac2", "ami-m4"]);
+    expect(seenPromotedAMI).toEqual(["ami-mac2", "ami-m4"]);
   });
 
   it("passes promoted AWS macOS images for fallback candidates", async () => {

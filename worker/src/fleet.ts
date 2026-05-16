@@ -946,9 +946,6 @@ export class FleetDurableObject implements DurableObject {
     if (config.provider === "aws" && !config.awsAMI && !config.awsSnapshot) {
       if (config.target === "macos") {
         config.awsPromotedAMIs = await this.promotedAWSImagesForFallback(config);
-        config.awsAMI =
-          config.awsPromotedAMIs[awsPromotedAMIConfigKey(config.awsRegion, config.serverType)] ??
-          "";
       } else {
         const promoted = await this.promotedAWSImage(config);
         config.awsAMI = promoted?.id ?? "";
