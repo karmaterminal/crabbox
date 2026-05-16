@@ -25,7 +25,7 @@
 - Changed AWS promoted image records to be scoped by target, architecture, server type, and region so macOS AMIs do not become the default image for Linux or Windows leases.
 - Changed the macOS host preflight and image lifecycle smoke to use the provider-neutral admin host/provider commands and `CRABBOX_HOST_ID` when pinning leases to an allocated host.
 - Changed the macOS image lifecycle smoke artifact to include the coordinator provider identity used for IAM remediation.
-- Changed macOS image lifecycle smoke blocker commands to use the guarded IAM apply helper for coordinator permission remediation.
+- Changed macOS image lifecycle smoke blocker commands to use portable evidence filenames with the guarded IAM apply helper for coordinator permission remediation.
 - Changed macOS image lifecycle blocked summaries to include a `blocker.reason` alias for automation that expects a short blocker reason.
 - Changed standalone macOS host region preflight blockers to use the guarded IAM apply helper instead of manual account-match shell snippets.
 - Hardened the macOS image lifecycle smoke so EC2 Mac Dedicated Host scrubbing, WebVNC daemon cleanup, active portal bridge checks, and Mac host family fallback are covered before image promotion.

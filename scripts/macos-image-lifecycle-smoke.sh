@@ -123,9 +123,10 @@ set_host_iam_remediation() {
   blocker_remediation="Apply the EC2 Mac host lifecycle policy to the coordinator AWS identity, verify the baseline AWS provider policy before paid image validation, then rerun the no-spend Mac host dry-run."
   blocker_commands="$(printf '%s\n' \
     "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region" \
-    "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos" \
-    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto" \
-    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto --apply" \
+    "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region --json > provider-identity.json" \
+    "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos > macos-image-policy.json" \
+    "$iam_apply_command --identity provider-identity.json --policy macos-image-policy.json --profile auto" \
+    "$iam_apply_command --identity provider-identity.json --policy macos-image-policy.json --profile auto --apply" \
     "$CRABBOX_REMEDIATION_BIN admin hosts allocate --provider aws --target macos --region $region --type $instance_type --dry-run --json")"
 }
 
@@ -133,9 +134,10 @@ set_quota_iam_remediation() {
   blocker_remediation="Apply the combined provider plus macOS host lifecycle policy printed by crabbox admin providers policy --provider aws --target macos; it includes servicequotas:ListServiceQuotas for the quota preflight."
   blocker_commands="$(printf '%s\n' \
     "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region" \
-    "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos" \
-    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto" \
-    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto --apply" \
+    "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region --json > provider-identity.json" \
+    "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos > macos-image-policy.json" \
+    "$iam_apply_command --identity provider-identity.json --policy macos-image-policy.json --profile auto" \
+    "$iam_apply_command --identity provider-identity.json --policy macos-image-policy.json --profile auto --apply" \
     "$CRABBOX_REMEDIATION_BIN admin hosts quota --provider aws --target macos --region $region --type $instance_type --json")"
 }
 
@@ -143,9 +145,10 @@ set_host_and_quota_iam_remediation() {
   blocker_remediation="Apply the combined provider plus macOS host lifecycle policy printed by crabbox admin providers policy --provider aws --target macos, then rerun both the Mac host quota preflight and no-spend Mac host dry-run."
   blocker_commands="$(printf '%s\n' \
     "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region" \
-    "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos" \
-    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto" \
-    "$iam_apply_command --identity $provider_identity_log --policy $macos_image_policy_log --profile auto --apply" \
+    "$CRABBOX_REMEDIATION_BIN admin providers identity --provider aws --region $region --json > provider-identity.json" \
+    "$CRABBOX_REMEDIATION_BIN admin providers policy --provider aws --target macos > macos-image-policy.json" \
+    "$iam_apply_command --identity provider-identity.json --policy macos-image-policy.json --profile auto" \
+    "$iam_apply_command --identity provider-identity.json --policy macos-image-policy.json --profile auto --apply" \
     "$CRABBOX_REMEDIATION_BIN admin hosts quota --provider aws --target macos --region $region --type $instance_type --json" \
     "$CRABBOX_REMEDIATION_BIN admin hosts allocate --provider aws --target macos --region $region --type $instance_type --dry-run --json")"
 }
