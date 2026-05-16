@@ -303,6 +303,7 @@ Trusted operator image controls:
 ```sh
 crabbox image create --id cbx_abcdef123456 --name openclaw-crabbox-20260501-1246 --wait
 crabbox image promote ami-1234567890abcdef0
+crabbox image promote ami-1234567890abcdef0 --target macos --region us-east-1 --type mac2.metal
 crabbox image delete ami-1234567890abcdef0 --region eu-west-1
 ```
 

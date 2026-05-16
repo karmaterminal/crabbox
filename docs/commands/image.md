@@ -8,7 +8,7 @@ If you want to save one prepared lease and fork that exact scenario later, use
 ```sh
 crabbox image create --id cbx_... --name crabbox-runner-20260501-1246 --wait
 crabbox image promote ami-...
-crabbox image promote ami-... --target macos --region us-east-1
+crabbox image promote ami-... --target macos --region us-east-1 --type mac1.metal
 crabbox image promote ami-... --json
 crabbox image delete ami-... --region eu-west-1
 crabbox image delete my-azure-image --provider azure --region westeurope
@@ -95,15 +95,20 @@ crabbox image promote ami-1234567890abcdef0
 Flags:
 
 ```text
---target <name>    linux, macos, or windows when promoting an existing AMI
---region <name>    AWS region for AMI lookup when promoting an existing AMI
---json             print JSON
+--target <name>          linux, macos, or windows when promoting an existing AMI
+--region <name>          AWS region for AMI lookup when promoting an existing AMI
+--type <instance-type>   instance type the AMI boots on, for example mac1.metal
+--server-type <type>     alias for --type
+--architecture <arch>    AWS AMI architecture, for example x86_64_mac or arm64_mac
+--json                   print JSON
 ```
 
 Add `--target` and `--region` when promoting an AMI that was not created through
 `crabbox image create`; created images inherit target and region metadata from
-their source lease. Add `--json` to print the promoted image record for
-automation.
+their source lease. For external macOS AMIs, Crabbox reads the AMI architecture
+from AWS and also accepts `--type` or `--architecture` when you want to pin the
+promotion metadata explicitly. Add `--json` to print the promoted image record
+for automation.
 
 Future brokered AWS leases use the promoted image when the request does not set
 an explicit `awsAMI` or `CRABBOX_AWS_AMI` override. Promotion stores coordinator
@@ -122,7 +127,7 @@ crabbox stop <slug>
 For macOS:
 
 ```sh
-crabbox image promote ami-new --target macos --region us-east-1
+crabbox image promote ami-new --target macos --region us-east-1 --type mac2.metal
 crabbox warmup --provider aws --target macos --type mac2.metal --market on-demand --ttl 30m
 crabbox run --id <slug> --shell -- 'echo image-smoke-ok && sw_vers && test -d "$HOME/crabbox"'
 crabbox stop <slug>

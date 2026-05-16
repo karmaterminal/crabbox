@@ -40,6 +40,9 @@
 ### Fixed
 
 - Fixed macOS image lifecycle region-preflight blockers so they preserve guarded IAM helper remediation commands from the region preflight evidence instead of falling back to manual account-match snippets.
+- Fixed macOS image lifecycle cleanup so script-allocated EC2 Mac Dedicated Hosts are released from failure traps when host release is requested.
+- Fixed remote macOS screenshots against no-auth VNC servers by reading the RFB 3.8 security result before framebuffer negotiation.
+- Fixed external macOS AMI promotion so x86 Mac images are keyed by their described architecture instead of defaulting to Apple silicon metadata.
 - Fixed provider-neutral admin command errors so older coordinators report the neutral route and the legacy compatibility route that both returned 404.
 - Fixed coordinator-backed macOS checkpoint metadata so an auto-discovered provider host id is preserved for snapshot forks.
 - Fixed provider-neutral host pin requests and lease records so the public JSON field is `hostId`, while `hostID` remains accepted for compatibility.

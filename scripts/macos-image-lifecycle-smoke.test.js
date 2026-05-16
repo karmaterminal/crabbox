@@ -113,6 +113,10 @@ case "$1" in
     fi
     count="$((count + 1))"
     printf '%s\\n' "$count" >"$state_dir/warmup-count"
+    if [[ "\${CRABBOX_FAKE_WARMUP_FAIL_AT:-}" == "$count" ]]; then
+      printf 'warmup failed at %s\\n' "$count" >&2
+      exit 42
+    fi
     case "$count" in
       1) printf '{"leaseId":"cbx_source"}\\n' ;;
       2) printf '{"leaseId":"cbx_candidate"}\\n' ;;
@@ -570,5 +574,30 @@ test("macOS lifecycle smoke preserves full mock lifecycle evidence", async () =>
   assert.match(fakeLog, /^checkpoint fork chk_macos$/m);
   assert.match(fakeLog, /^checkpoint delete chk_macos$/m);
   assert.match(fakeLog, /^admin hosts quota --provider aws --target macos --region eu-west-1 --type mac2\.metal --json$/m);
+  assert.match(fakeLog, /^admin hosts release h-mock --provider aws --target macos --region eu-west-1 --force$/m);
+});
+
+test("macOS lifecycle smoke releases script-allocated hosts after failures", async () => {
+  const run = await setupRun();
+  const result = await runLifecycle({
+    CRABBOX_BIN: run.fake,
+    CRABBOX_FAKE_LOG: run.fakeLog,
+    CRABBOX_FAKE_STATE: run.fakeState,
+    CRABBOX_FAKE_NO_HOST: "1",
+    CRABBOX_FAKE_WARMUP_FAIL_AT: "1",
+    CRABBOX_MACOS_ALLOCATE: "1",
+    CRABBOX_MACOS_RELEASE_HOST: "1",
+    CRABBOX_MACOS_ARTIFACT_DIR: run.artifacts,
+    CRABBOX_MACOS_IMAGE_NAME: "failed-cleanup",
+    CRABBOX_MACOS_WEBVNC_START_GRACE: "0s",
+  });
+
+  assert.notEqual(result.code, 0);
+  const summary = await readJSON(path.join(run.artifacts, "summary.json"));
+  assert.equal(summary.result, "failed");
+  assert.equal(summary.host.allocatedByScript, true);
+  assert.equal(summary.host.released, true);
+  const fakeLog = await readFile(run.fakeLog, "utf8");
+  assert.match(fakeLog, /^admin hosts allocate --provider aws --target macos --region eu-west-1 --type mac2\.metal --force --json$/m);
   assert.match(fakeLog, /^admin hosts release h-mock --provider aws --target macos --region eu-west-1 --force$/m);
 });

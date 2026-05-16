@@ -1163,6 +1163,12 @@ func TestCoordinatorImageCreateAndPromote(t *testing.T) {
 			if got := r.URL.Query().Get("region"); got != "us-east-1" {
 				t.Fatalf("promote region=%q", got)
 			}
+			if got := r.URL.Query().Get("serverType"); got != "mac1.metal" {
+				t.Fatalf("promote serverType=%q", got)
+			}
+			if got := r.URL.Query().Get("architecture"); got != "x86_64_mac" {
+				t.Fatalf("promote architecture=%q", got)
+			}
 			_, _ = w.Write([]byte(`{"image":{"id":"ami-12345678","name":"openclaw-crabbox-test","state":"available","region":"eu-west-1","promotedAt":"2026-05-01T12:46:00Z"}}`))
 		default:
 			http.NotFound(w, r)
@@ -1181,7 +1187,7 @@ func TestCoordinatorImageCreateAndPromote(t *testing.T) {
 	if image, err := client.Image(context.Background(), "ami-12345678"); err != nil || image.State != "available" {
 		t.Fatalf("image=%#v err=%v", image, err)
 	}
-	if promoted, err := client.PromoteImage(context.Background(), "ami-12345678", CoordinatorImageRef{Provider: "aws", Region: "us-east-1", Target: "macos"}); err != nil || promoted.PromotedAt == "" {
+	if promoted, err := client.PromoteImage(context.Background(), "ami-12345678", CoordinatorImageRef{Provider: "aws", Region: "us-east-1", Target: "macos", ServerType: "mac1.metal", Architecture: "x86_64_mac"}); err != nil || promoted.PromotedAt == "" {
 		t.Fatalf("promoted=%#v err=%v", promoted, err)
 	}
 	if err := client.DeleteImage(context.Background(), "ami-12345678", CoordinatorImageRef{Provider: "aws", Region: "eu-west-1", Kind: "aws-ami"}); err != nil {

@@ -113,10 +113,8 @@ func captureRFBFrameFromConn(ctx context.Context, conn net.Conn, creds rfbCreden
 	default:
 		return nil, fmt.Errorf("unsupported RFB security type %d", securityType)
 	}
-	if securityType != rfbSecurityNone {
-		if err := readRFBSecurityResult(conn); err != nil {
-			return nil, err
-		}
+	if err := readRFBSecurityResult(conn); err != nil {
+		return nil, err
 	}
 
 	if _, err := conn.Write([]byte{1}); err != nil {

@@ -42,6 +42,28 @@ func TestCaptureRFBFrameSupportsAppleRemoteDesktopAuth(t *testing.T) {
 	}
 }
 
+func TestCaptureRFBFrameReadsNoneAuthSecurityResult(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- serveTestNoneRFB(server)
+	}()
+
+	img, err := captureRFBFrameFromConn(context.Background(), client, rfbCredentials{})
+	if err != nil {
+		t.Fatalf("capture RFB frame: %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("fake RFB server: %v", err)
+	}
+	if got := color.RGBAModel.Convert(img.At(0, 0)); got != (color.RGBA{B: 255, A: 255}) {
+		t.Fatalf("pixel=%v", got)
+	}
+}
+
 func serveTestARDRFB(conn net.Conn, username, password string) error {
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	if _, err := conn.Write([]byte("RFB 003.889\n")); err != nil {
@@ -139,6 +161,69 @@ func serveTestARDRFB(conn net.Conn, username, password string) error {
 		0, 255, 0, 0,
 	})
 	_, err = conn.Write(update)
+	return err
+}
+
+func serveTestNoneRFB(conn net.Conn) error {
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	if _, err := conn.Write([]byte("RFB 003.008\n")); err != nil {
+		return err
+	}
+	clientVersion := make([]byte, 12)
+	if _, err := io.ReadFull(conn, clientVersion); err != nil {
+		return err
+	}
+	if !bytes.Equal(clientVersion, []byte("RFB 003.008\n")) {
+		return errUnexpectedTestBytes("client version", clientVersion)
+	}
+	if _, err := conn.Write([]byte{1, rfbSecurityNone}); err != nil {
+		return err
+	}
+	security := []byte{0}
+	if _, err := io.ReadFull(conn, security); err != nil {
+		return err
+	}
+	if security[0] != rfbSecurityNone {
+		return errUnexpectedTestBytes("security type", security)
+	}
+	if _, err := conn.Write([]byte{0, 0, 0, 0}); err != nil {
+		return err
+	}
+	clientInit := []byte{0}
+	if _, err := io.ReadFull(conn, clientInit); err != nil {
+		return err
+	}
+	serverInit := make([]byte, 24)
+	binary.BigEndian.PutUint16(serverInit[0:2], 1)
+	binary.BigEndian.PutUint16(serverInit[2:4], 1)
+	serverInit[4] = 32
+	serverInit[5] = 24
+	serverInit[7] = 1
+	binary.BigEndian.PutUint16(serverInit[8:10], 255)
+	binary.BigEndian.PutUint16(serverInit[10:12], 255)
+	binary.BigEndian.PutUint16(serverInit[12:14], 255)
+	serverInit[14] = 16
+	serverInit[15] = 8
+	if _, err := conn.Write(serverInit); err != nil {
+		return err
+	}
+	if _, err := io.CopyN(io.Discard, conn, 20); err != nil {
+		return err
+	}
+	if _, err := io.CopyN(io.Discard, conn, 8); err != nil {
+		return err
+	}
+	if _, err := io.CopyN(io.Discard, conn, 10); err != nil {
+		return err
+	}
+	update := make([]byte, 4+12+4)
+	update[0] = 0
+	binary.BigEndian.PutUint16(update[2:4], 1)
+	binary.BigEndian.PutUint16(update[8:10], 1)
+	binary.BigEndian.PutUint16(update[10:12], 1)
+	binary.BigEndian.PutUint32(update[12:16], uint32(rfbEncodingRaw))
+	copy(update[16:], []byte{255, 0, 0, 0})
+	_, err := conn.Write(update)
 	return err
 }
 

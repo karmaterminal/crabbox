@@ -3381,6 +3381,39 @@ describe("fleet lease identity and idle", () => {
     expect(storage.value("image:aws:promoted")).toBeUndefined();
   });
 
+  it("uses described AWS macOS image architecture when promoting external AMIs", async () => {
+    const storage = new MemoryStorage();
+    const fleet = testFleet(storage, {
+      aws: fakeProvider(undefined, {
+        onGetImage(imageID) {
+          return {
+            id: imageID,
+            name: "external-mac1",
+            state: "available",
+            provider: "aws",
+            kind: "aws-ami",
+            region: "us-east-1",
+            resourceID: imageID,
+            architecture: "x86_64_mac",
+          };
+        },
+      }),
+    });
+
+    const promoted = await fleet.fetch(
+      request("POST", "/v1/images/ami-external/promote?target=macos&region=us-east-1", {
+        headers: { "x-crabbox-admin": "true" },
+        body: {},
+      }),
+    );
+
+    expect(promoted.status).toBe(200);
+    expect(storage.value("image:aws:promoted:macos:x86_64_mac:us-east-1")).toEqual(
+      expect.objectContaining({ id: "ami-external", architecture: "x86_64_mac", target: "macos" }),
+    );
+    expect(storage.value("image:aws:promoted:macos:arm64_mac:us-east-1")).toBeUndefined();
+  });
+
   it("uses promoted AWS image region when creating leases", async () => {
     const storage = new MemoryStorage();
     let createdConfig: LeaseConfig | undefined;

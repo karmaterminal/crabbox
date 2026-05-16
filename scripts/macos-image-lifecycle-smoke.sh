@@ -232,6 +232,7 @@ cleanup() {
     stop_lease "$source_lease"
   fi
   delete_checkpoint || true
+  release_host_if_requested cleanup || true
 }
 
 write_summary() {
@@ -461,16 +462,26 @@ summary_path() {
 
 on_exit() {
   local status=$?
+  if [[ "$status" -ne 0 ]]; then
+    cleanup || true
+  fi
   if [[ "$status" -ne 0 && "$summary_result" != "blocked" ]]; then
     write_summary failed "$summary_phase" || true
   fi
-  cleanup
+  if [[ "$status" -eq 0 ]]; then
+    cleanup || true
+  fi
+  exit "$status"
 }
 trap on_exit EXIT
 
 release_host_if_requested() {
   local label="$1"
   [[ "$release_host" == "1" && -n "$allocated_host" ]] || return 0
+  if [[ "$host_allocated_by_script" != "1" && "${CRABBOX_MACOS_RELEASE_EXISTING_HOST:-0}" != "1" ]]; then
+    printf 'refusing to release pre-existing EC2 Mac Dedicated Host %s; set CRABBOX_MACOS_RELEASE_EXISTING_HOST=1 to confirm.\n' "$allocated_host" >&2
+    return 1
+  fi
   wait_for_host_available "$allocated_host" "$label"
   run "$CRABBOX_BIN" admin hosts release "$allocated_host" --provider aws --target macos --region "$region" --force
   host_released=1
