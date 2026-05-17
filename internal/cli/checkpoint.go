@@ -1210,7 +1210,10 @@ func nativeCheckpointForkWorkdir(cfg Config, leaseID, repoName, override string)
 
 func applyNativeCheckpointForkConfig(cfg *Config, fs *flag.FlagSet, record checkpointRecord) error {
 	cfg.Provider = firstNonBlank(record.Native.Provider, checkpointProviderForKind(record.Kind), record.Provider)
-	if cfg.CoordAdminToken != "" {
+	if record.Native.Direct {
+		cfg.Coordinator = ""
+		cfg.CoordToken = ""
+	} else if cfg.CoordAdminToken != "" {
 		cfg.CoordToken = cfg.CoordAdminToken
 	}
 	switch record.Kind {

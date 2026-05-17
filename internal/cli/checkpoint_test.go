@@ -958,6 +958,31 @@ func TestApplyAWSAMICheckpointForkConfigRecomputesServerType(t *testing.T) {
 	}
 }
 
+func TestApplyAWSAMICheckpointForkConfigKeepsDirectRecordsOffCoordinator(t *testing.T) {
+	fs := newFlagSet("checkpoint fork", io.Discard)
+	_ = fs.String("type", "", "provider type")
+	cfg := defaultConfig()
+	cfg.Provider = "aws"
+	cfg.Coordinator = "https://coordinator.example"
+	cfg.CoordToken = "user-token"
+	cfg.CoordAdminToken = "admin-token"
+	record := checkpointRecord{Kind: checkpointKindAWSAMI, TargetOS: targetLinux, WindowsMode: windowsModeNormal}
+	record.Native.Provider = "aws"
+	record.Native.ImageID = "ami-12345678"
+	record.Native.Region = "eu-west-1"
+	record.Native.Direct = true
+
+	if err := applyAWSAMICheckpointForkConfig(&cfg, fs, record); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Coordinator != "" || cfg.CoordToken != "" {
+		t.Fatalf("direct checkpoint fork kept coordinator: coordinator=%q token=%q", cfg.Coordinator, cfg.CoordToken)
+	}
+	if cfg.AWSAMI != "ami-12345678" || cfg.AWSRegion != "eu-west-1" {
+		t.Fatalf("direct AWS image config not applied: %#v", cfg)
+	}
+}
+
 func TestApplyAWSAMICheckpointForkConfigHonorsClassOverride(t *testing.T) {
 	fs := newFlagSet("checkpoint fork", io.Discard)
 	class := fs.String("class", "standard", "provider class")
