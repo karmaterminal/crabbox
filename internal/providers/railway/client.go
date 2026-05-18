@@ -14,8 +14,8 @@ import (
 // railwayAPI is the minimal Railway GraphQL surface the provider needs.
 //
 // Railway has no synchronous exec endpoint, so the provider models a "sandbox"
-// as a Railway service inside a project. Run triggers a redeploy via
-// environmentTriggersDeploy and surfaces deployment logs; List enumerates
+// as a Railway service inside a project. Run redeploys the latest deployment
+// via deploymentRedeploy and surfaces deployment logs; List enumerates
 // services across visible projects; Status fetches the latest deployment for a
 // service; Stop calls deploymentStop on that latest deployment.
 type railwayAPI interface {
@@ -230,48 +230,37 @@ func (c *railwayClient) do(ctx context.Context, query string, vars map[string]an
 	return nil
 }
 
-const triggerDeployMutation = `mutation crabboxTriggerDeploy($input: EnvironmentTriggersDeployInput!) {
-  environmentTriggersDeploy(input: $input)
+const redeployMutation = `mutation crabboxRedeploy($id: String!, $usePreviousImageTag: Boolean) {
+  deploymentRedeploy(id: $id, usePreviousImageTag: $usePreviousImageTag) {
+    id
+    status
+    url
+    createdAt
+  }
 }`
 
 func (c *railwayClient) TriggerDeploy(ctx context.Context, projectID, environmentID, serviceID string) (string, error) {
 	if projectID == "" || environmentID == "" || serviceID == "" {
 		return "", fmt.Errorf("triggerDeploy: projectId, environmentId, and serviceId are required")
 	}
-	var out struct {
-		EnvironmentTriggersDeploy json.RawMessage `json:"environmentTriggersDeploy"`
-	}
-	vars := map[string]any{
-		"input": map[string]any{
-			"projectId":     projectID,
-			"environmentId": environmentID,
-			"serviceId":     serviceID,
-		},
-	}
-	if err := c.do(ctx, triggerDeployMutation, vars, &out); err != nil {
+	latest, err := c.LatestDeployment(ctx, projectID, environmentID, serviceID)
+	if err != nil {
 		return "", err
 	}
-	// Railway's environmentTriggersDeploy can return the new deployment id as a
-	// bare string, wrap it in a Deployment object, or return a boolean success
-	// marker. The boolean case falls back to LatestDeployment in Run().
-	var maybeID string
-	if err := json.Unmarshal(out.EnvironmentTriggersDeploy, &maybeID); err == nil {
-		return strings.TrimSpace(maybeID), nil
+	if strings.TrimSpace(latest.ID) == "" {
+		return "", fmt.Errorf("triggerDeploy: latest deployment not found for service %s", serviceID)
 	}
-	var maybeObject struct {
-		ID string `json:"id"`
+	var out struct {
+		DeploymentRedeploy railwayDeployment `json:"deploymentRedeploy"`
 	}
-	if err := json.Unmarshal(out.EnvironmentTriggersDeploy, &maybeObject); err == nil {
-		return strings.TrimSpace(maybeObject.ID), nil
+	if err := c.do(ctx, redeployMutation, map[string]any{"id": latest.ID, "usePreviousImageTag": true}, &out); err != nil {
+		return "", err
 	}
-	var maybeOK bool
-	if err := json.Unmarshal(out.EnvironmentTriggersDeploy, &maybeOK); err == nil {
-		if !maybeOK {
-			return "", fmt.Errorf("environmentTriggersDeploy returned false")
-		}
-		return "", nil
+	deploymentID := strings.TrimSpace(out.DeploymentRedeploy.ID)
+	if deploymentID == "" {
+		return "", fmt.Errorf("deploymentRedeploy returned empty deployment id")
 	}
-	return "", nil
+	return deploymentID, nil
 }
 
 const latestDeploymentQuery = `query crabboxLatestDeployment($input: DeploymentListInput!) {

@@ -21,9 +21,9 @@ SSH mutation, no `service.run(cmd)` GraphQL field. Crabbox therefore maps
 1. The caller must point at a pre-existing Railway service with
    `--id <serviceId>`, plus `--railway-project <projectId>` and
    `--railway-environment <environmentId>` (or the matching env vars / YAML).
-2. The provider issues the GraphQL mutation
-   `environmentTriggersDeploy(input: { projectId, environmentId, serviceId })`
-   to kick a redeploy of that service.
+2. The provider reads the latest deployment for that service, then issues the
+   GraphQL mutation `deploymentRedeploy(id: $deploymentId)` to kick a redeploy
+   of the same build/image.
 3. The provider polls `deployment(id: $deploymentId)` for the deployment id
    returned by the mutation, while fetching newly available
    `buildLogs(deploymentId, limit)` and `deploymentLogs(deploymentId, limit)`
@@ -76,7 +76,7 @@ crabbox list   --provider railway
 ## Auth
 
 ```sh
-export RAILWAY_API_TOKEN=...   # required, account or project token from /account/tokens
+export RAILWAY_API_TOKEN=...   # required, account token from /account/tokens
 ```
 
 `CRABBOX_RAILWAY_API_TOKEN` is also accepted and wins over `RAILWAY_API_TOKEN`,

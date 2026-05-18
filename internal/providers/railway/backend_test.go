@@ -71,8 +71,8 @@ func TestRailwayClientSendsBearerAndGraphQLBody(t *testing.T) {
 		gotAuth        string
 		gotContentType string
 		gotMethod      string
-		gotQuery       string
-		gotVariables   map[string]any
+		gotQueries     []string
+		gotVariables   []map[string]any
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
@@ -84,9 +84,13 @@ func TestRailwayClientSendsBearerAndGraphQLBody(t *testing.T) {
 			Variables map[string]any `json:"variables"`
 		}
 		_ = json.Unmarshal(body, &payload)
-		gotQuery = payload.Query
-		gotVariables = payload.Variables
-		_, _ = io.WriteString(w, `{"data":{"environmentTriggersDeploy":"dep-1"}}`)
+		gotQueries = append(gotQueries, payload.Query)
+		gotVariables = append(gotVariables, payload.Variables)
+		if strings.Contains(payload.Query, "deployments") {
+			_, _ = io.WriteString(w, `{"data":{"deployments":{"edges":[{"node":{"id":"dep-old","status":"SUCCESS","url":"","createdAt":"2026-05-18T12:00:00Z"}}]}}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":{"deploymentRedeploy":{"id":"dep-1","status":"QUEUED","url":"","createdAt":"2026-05-18T12:01:00Z"}}}`)
 	}))
 	defer server.Close()
 
@@ -110,43 +114,27 @@ func TestRailwayClientSendsBearerAndGraphQLBody(t *testing.T) {
 	if gotContentType != "application/json" {
 		t.Fatalf("content-type = %q, want application/json", gotContentType)
 	}
-	if !strings.Contains(gotQuery, "environmentTriggersDeploy") {
-		t.Fatalf("query missing environmentTriggersDeploy mutation: %s", gotQuery)
+	if len(gotQueries) != 2 {
+		t.Fatalf("queries len=%d, want latest query + redeploy mutation", len(gotQueries))
 	}
-	input, _ := gotVariables["input"].(map[string]any)
+	if !strings.Contains(gotQueries[0], "deployments") || !strings.Contains(gotQueries[1], "deploymentRedeploy") {
+		t.Fatalf("queries = %#v, want latest deployment then deploymentRedeploy", gotQueries)
+	}
+	input, _ := gotVariables[0]["input"].(map[string]any)
 	if input["projectId"] != "proj-1" || input["environmentId"] != "env-1" || input["serviceId"] != "svc-1" {
-		t.Fatalf("variables = %#v, want proj-1/env-1/svc-1", gotVariables)
+		t.Fatalf("latest variables = %#v, want proj-1/env-1/svc-1", gotVariables[0])
+	}
+	if gotVariables[1]["id"] != "dep-old" || gotVariables[1]["usePreviousImageTag"] != true {
+		t.Fatalf("redeploy variables = %#v, want dep-old/usePreviousImageTag", gotVariables[1])
 	}
 	if deployID != "dep-1" {
 		t.Fatalf("deployID = %q, want dep-1", deployID)
 	}
 }
 
-func TestRailwayClientAcceptsBooleanTriggerDeployResponse(t *testing.T) {
+func TestRailwayClientRequiresLatestDeploymentBeforeRedeploy(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"data":{"environmentTriggersDeploy":true}}`)
-	}))
-	defer server.Close()
-
-	cfg := Config{}
-	cfg.Railway.APIToken = "test-token"
-	cfg.Railway.APIURL = server.URL
-	client, err := newRailwayClient(cfg, Runtime{HTTP: server.Client()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	deployID, err := client.TriggerDeploy(context.Background(), "proj-1", "env-1", "svc-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if deployID != "" {
-		t.Fatalf("deployID = %q, want empty fallback marker", deployID)
-	}
-}
-
-func TestRailwayClientRejectsFalseBooleanTriggerDeployResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"data":{"environmentTriggersDeploy":false}}`)
+		_, _ = io.WriteString(w, `{"data":{"deployments":{"edges":[]}}}`)
 	}))
 	defer server.Close()
 
@@ -158,8 +146,32 @@ func TestRailwayClientRejectsFalseBooleanTriggerDeployResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = client.TriggerDeploy(context.Background(), "proj-1", "env-1", "svc-1")
-	if err == nil || !strings.Contains(err.Error(), "environmentTriggersDeploy returned false") {
-		t.Fatalf("err = %v, want false trigger error", err)
+	if err == nil || !strings.Contains(err.Error(), "latest deployment not found") {
+		t.Fatalf("err = %v, want latest deployment error", err)
+	}
+}
+
+func TestRailwayClientRejectsEmptyRedeployResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "deployments") {
+			_, _ = io.WriteString(w, `{"data":{"deployments":{"edges":[{"node":{"id":"dep-old","status":"SUCCESS","url":"","createdAt":"2026-05-18T12:00:00Z"}}]}}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":{"deploymentRedeploy":{"id":"","status":"QUEUED","url":"","createdAt":"2026-05-18T12:01:00Z"}}}`)
+	}))
+	defer server.Close()
+
+	cfg := Config{}
+	cfg.Railway.APIToken = "test-token"
+	cfg.Railway.APIURL = server.URL
+	client, err := newRailwayClient(cfg, Runtime{HTTP: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.TriggerDeploy(context.Background(), "proj-1", "env-1", "svc-1")
+	if err == nil || !strings.Contains(err.Error(), "deploymentRedeploy returned empty deployment id") {
+		t.Fatalf("err = %v, want empty redeploy id error", err)
 	}
 }
 

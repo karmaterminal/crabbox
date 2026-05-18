@@ -34,6 +34,7 @@
 - Fixed WebVNC local bridge startup so resolved SSH fallback ports are reused for the foreground VNC tunnel instead of falling back during probes and then tunneling the stale configured port.
 - Fixed the portal so configured AWS macOS Dedicated Hosts appear as lease-like dedicated rows with host detail pages, attached-lease access actions, and local start/WebVNC commands for host-pinned desktop leases.
 - Fixed pinned AWS macOS host/image launches so region fallback cannot silently route a candidate image proof onto a different region or host.
+- Fixed Railway `crabbox run` redeploys to use Railway's deployment redeploy mutation so live Docker-image services return the new deployment ID reliably.
 - Fixed direct AWS AMI checkpoint create, inspect, delete, and fork paths so source instances are validated before host preparation and recorded account/direct-backend metadata is honored even after coordinator configuration changes.
 - Fixed direct AWS macOS AMI checkpoint forks so resolved and recorded EC2 Mac Dedicated Host pins are reused after coordinator routing is disabled.
 - Fixed AWS macOS native checkpoint selection so brokered and direct macOS checkpoints use AMI-backed snapshots by default instead of raw EBS snapshot forks that EC2 Mac cannot reliably relaunch.

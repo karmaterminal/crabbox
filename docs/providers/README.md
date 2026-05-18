@@ -72,7 +72,7 @@ Proxmox and delegated providers do not use the Crabbox coordinator:
 - Tensorlake uses the `tensorlake` CLI (`tensorlake sbx ...`) for sandbox lifecycle and command exec.
 - Cloudflare uses a deployed Worker runner backed by a Cloudflare
   Containers image.
-- Railway uses the [Railway](https://railway.com) GraphQL API (`environmentTriggersDeploy`,
+- Railway uses the [Railway](https://railway.com) GraphQL API (`deploymentRedeploy`,
   `deploymentLogs`, `deploymentStop`) against a pre-existing service the user
   owns. The user's command argument is logged; Railway runs the service's own
   start command — there is no synchronous exec endpoint.

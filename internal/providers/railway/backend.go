@@ -11,7 +11,7 @@ import (
 )
 
 // Polling configuration for Run(). Railway has no synchronous exec endpoint,
-// so we trigger a deploy and then poll the new deployment's status until it
+// so we trigger a redeploy and then poll the new deployment's status until it
 // reaches a terminal state. The interval grows exponentially with jitter so a
 // long deployment doesn't hammer the API while a short one still feels snappy.
 const (
@@ -63,7 +63,7 @@ type railwayBackend struct {
 	pollInitialOverride time.Duration
 	// pollOverallOverride lets tests shorten the overall poll timeout.
 	pollOverallOverride time.Duration
-	// deployResolveOverride lets tests shorten boolean-trigger deployment resolution.
+	// deployResolveOverride lets tests shorten empty-trigger deployment resolution.
 	deployResolveOverride time.Duration
 }
 
