@@ -35,11 +35,11 @@ func NewAWSLeaseBackend(spec ProviderSpec, cfg Config, rt Runtime) Backend {
 
 func (b *awsLeaseBackend) Acquire(ctx context.Context, req AcquireRequest) (LeaseTarget, error) {
 	return acquireAttemptsRetry(b.RT, req.Keep, func() (LeaseTarget, error) {
-		return b.acquireOnce(ctx, req.Keep)
+		return b.acquireOnce(ctx, req.Keep, req.RequestedSlug)
 	})
 }
 
-func (b *awsLeaseBackend) acquireOnce(ctx context.Context, keep bool) (LeaseTarget, error) {
+func (b *awsLeaseBackend) acquireOnce(ctx context.Context, keep bool, requestedSlug string) (LeaseTarget, error) {
 	if b.Cfg.Tailscale.Enabled && b.Cfg.Tailscale.AuthKey == "" {
 		return LeaseTarget{}, exit(2, "direct --tailscale requires %s to contain a Tailscale auth key; brokered mode uses coordinator OAuth secrets", b.Cfg.Tailscale.AuthKeyEnv)
 	}
@@ -53,7 +53,10 @@ func (b *awsLeaseBackend) acquireOnce(ctx context.Context, keep bool) (LeaseTarg
 	if err != nil {
 		return LeaseTarget{}, err
 	}
-	slug := allocateDirectLeaseSlug(leaseID, servers)
+	slug, err := allocateDirectLeaseSlug(leaseID, requestedSlug, servers)
+	if err != nil {
+		return LeaseTarget{}, err
+	}
 	keyPath, publicKey, err := ensureTestboxKeyForConfig(cfg, leaseID)
 	if err != nil {
 		return LeaseTarget{}, err
@@ -188,8 +191,8 @@ func newAWSClient(ctx context.Context, cfg Config) (*core.AWSClient, error) {
 }
 
 func newLeaseID() string { return core.NewLeaseID() }
-func allocateDirectLeaseSlug(id string, servers []Server) string {
-	return core.AllocateDirectLeaseSlug(id, servers)
+func allocateDirectLeaseSlug(id, requested string, servers []Server) (string, error) {
+	return core.AllocateDirectLeaseSlug(id, requested, servers)
 }
 func ensureTestboxKeyForConfig(cfg Config, leaseID string) (string, string, error) {
 	return core.EnsureTestboxKeyForConfig(cfg, leaseID)

@@ -31,7 +31,7 @@ func (b *tensorlakeBackend) Warmup(ctx context.Context, req WarmupRequest) error
 	if err != nil {
 		return err
 	}
-	leaseID, sandboxID, name, slug, err := b.createSandbox(ctx, cli, req.Repo, req.Reclaim)
+	leaseID, sandboxID, name, slug, err := b.createSandbox(ctx, cli, req.Repo, req.Reclaim, req.RequestedSlug)
 	if err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func (b *tensorlakeBackend) Run(ctx context.Context, req RunRequest) (RunResult,
 	acquired := false
 	if req.ID == "" {
 		var name string
-		leaseID, sandboxID, name, slug, err = b.createSandbox(ctx, cli, req.Repo, req.Reclaim)
+		leaseID, sandboxID, name, slug, err = b.createSandbox(ctx, cli, req.Repo, req.Reclaim, req.RequestedSlug)
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -153,6 +153,7 @@ func (b *tensorlakeBackend) Run(ctx context.Context, req RunRequest) (RunResult,
 			CommandMs:     result.Command.Milliseconds(),
 			TotalMs:       result.Total.Milliseconds(),
 			ExitCode:      exitCode,
+			Label:         strings.TrimSpace(req.Label),
 		}); err != nil {
 			return result, err
 		}
@@ -270,14 +271,18 @@ func (b *tensorlakeBackend) Stop(ctx context.Context, req StopRequest) error {
 // identifier we key the local claim by. The Crabbox-prefixed name is set on
 // the Tensorlake side for human-readable `tensorlake sbx ls` output but is
 // not used for subsequent API calls.
-func (b *tensorlakeBackend) createSandbox(ctx context.Context, cli *tensorlakeCLI, repo Repo, reclaim bool) (string, string, string, string, error) {
+func (b *tensorlakeBackend) createSandbox(ctx context.Context, cli *tensorlakeCLI, repo Repo, reclaim bool, requestedSlug string) (string, string, string, string, error) {
 	name := newSandboxName(repo)
 	sandboxID, err := cli.createSandbox(ctx, name)
 	if err != nil {
 		return "", "", "", "", err
 	}
 	leaseID := leasePrefix + sandboxID
-	slug := newLeaseSlug(leaseID)
+	slug, err := allocateClaimLeaseSlug(leaseID, requestedSlug)
+	if err != nil {
+		_ = cli.terminate(context.Background(), sandboxID)
+		return "", "", "", "", err
+	}
 	if err := claimLeaseForRepoProvider(leaseID, slug, providerName, repo.Root, b.cfg.IdleTimeout, reclaim); err != nil {
 		_ = cli.terminate(context.Background(), sandboxID)
 		return "", "", "", "", err

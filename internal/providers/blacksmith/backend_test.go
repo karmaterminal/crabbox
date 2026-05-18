@@ -112,7 +112,7 @@ func TestBlacksmithWarmupFailureRemovesPendingKey(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Blacksmith.Workflow = ".github/workflows/testbox.yml"
 	backend := newTestBlacksmithBackend(cfg, runner)
-	_, _, err := backend.warmupLease(context.Background(), Repo{Root: "/repo"}, false)
+	_, _, err := backend.warmupLease(context.Background(), Repo{Root: "/repo"}, false, "")
 	if err == nil {
 		t.Fatal("expected warmup failure")
 	}
@@ -149,7 +149,7 @@ func TestBlacksmithWarmupFailureStopsPrintedTestbox(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Blacksmith.Workflow = ".github/workflows/testbox.yml"
 	backend := newTestBlacksmithBackend(cfg, runner)
-	_, _, err := backend.warmupLease(context.Background(), Repo{Root: "/repo"}, false)
+	_, _, err := backend.warmupLease(context.Background(), Repo{Root: "/repo"}, false, "")
 	if err == nil {
 		t.Fatal("expected warmup failure")
 	}
@@ -199,7 +199,7 @@ func TestBlacksmithWarmupFailureStopsNewListedTestbox(t *testing.T) {
 	cfg.Blacksmith.Job = "check"
 	cfg.Blacksmith.Ref = "main"
 	backend := newTestBlacksmithBackend(cfg, runner)
-	_, _, err := backend.warmupLease(context.Background(), Repo{Root: "/repo"}, false)
+	_, _, err := backend.warmupLease(context.Background(), Repo{Root: "/repo"}, false, "")
 	if err == nil {
 		t.Fatal("expected warmup failure")
 	}
@@ -253,7 +253,7 @@ func TestBlacksmithWarmupFailureContinuesAfterFirstDelayedStop(t *testing.T) {
 	cfg.Blacksmith.Job = "check"
 	cfg.Blacksmith.Ref = "main"
 	backend := newTestBlacksmithBackend(cfg, runner)
-	_, _, err := backend.warmupLease(context.Background(), Repo{Root: "/repo"}, false)
+	_, _, err := backend.warmupLease(context.Background(), Repo{Root: "/repo"}, false, "")
 	if err == nil {
 		t.Fatal("expected warmup failure")
 	}
@@ -328,6 +328,7 @@ func TestBlacksmithRunTimingJSONIncludesCommandPhases(t *testing.T) {
 	_, err := backend.Run(context.Background(), RunRequest{
 		Repo:       Repo{Root: "/repo"},
 		Command:    []string{"true"},
+		Label:      "update flow smoke",
 		TimingJSON: true,
 	})
 	if err != nil {
@@ -346,6 +347,9 @@ func TestBlacksmithRunTimingJSONIncludesCommandPhases(t *testing.T) {
 	}
 	if report.CommandPhases[1].Name != "delegated" {
 		t.Fatalf("command phases=%#v, want delegated marker", report.CommandPhases)
+	}
+	if report.Label != "update flow smoke" {
+		t.Fatalf("label=%q", report.Label)
 	}
 }
 

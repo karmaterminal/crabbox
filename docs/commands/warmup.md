@@ -8,6 +8,7 @@ crabbox warmup --provider aws --class beast --market on-demand
 crabbox warmup --provider azure --class beast
 crabbox warmup --browser
 crabbox warmup --tailscale
+crabbox warmup --slug update-flow-smoke
 crabbox warmup --desktop --browser
 crabbox warmup --provider aws --target windows --desktop
 crabbox warmup --provider azure --target windows
@@ -25,6 +26,8 @@ crabbox warmup --provider ssh --target windows --windows-mode normal --static-ho
 ```
 
 The command returns a stable `cbx_...` lease ID and a friendly slug. Reuse either for subsequent `run`, `status`, `ssh`, `inspect`, and `stop` commands; scripts should keep using the canonical ID.
+Use `--slug <slug>` to request a human-chosen slug for a new lease. Crabbox
+normalizes it and may add a suffix when an active lease already uses it.
 
 With `--provider blacksmith-testbox`, the canonical ID is the Blacksmith `tbx_...` ID returned by `blacksmith testbox warmup`; Crabbox still assigns and stores a local slug for reuse.
 
@@ -118,6 +121,7 @@ Flags:
 --type <provider-type>
 --azure-os-disk managed|ephemeral|auto
 --market spot|on-demand
+--slug <slug>
 --ttl <duration>
 --idle-timeout <duration>
 --desktop

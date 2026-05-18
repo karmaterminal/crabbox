@@ -439,6 +439,7 @@ export function portalRunDetail(
           </div>
           <dl class="meta-grid">
             ${metaRow("lease", run.slug ? `${run.slug} / ${run.leaseID}` : run.leaseID)}
+            ${run.label ? metaRow("label", run.label) : ""}
             ${metaHTMLRow("provider", providerBadge(run.provider))}
             ${metaHTMLRow("target", targetBadge(run.target || "linux", run.windowsMode))}
             ${metaRow("class", run.class)}
@@ -1622,8 +1623,9 @@ function runnerSortTime(runner: ExternalRunnerRecord): string {
 
 function runRow(run: RunRecord): string {
   const stateTone = run.state === "succeeded" ? "ok" : run.state === "failed" ? "bad" : "warn";
+  const subtitle = run.label || run.command.join(" ");
   return `<tr data-filter-tags="${escapeHTML([run.state, run.provider, run.target || "linux"].filter(Boolean).join(" "))}">
-    <td><a class="lease-link" href="/portal/runs/${encodeURIComponent(run.id)}"><strong>${escapeHTML(run.id)}</strong><small>${escapeHTML(run.command.join(" "))}</small></a></td>
+    <td><a class="lease-link" href="/portal/runs/${encodeURIComponent(run.id)}"><strong>${escapeHTML(run.id)}</strong><small>${escapeHTML(subtitle)}</small></a></td>
     <td><span class="pill" data-tone="${stateTone}">${escapeHTML(run.state)}</span></td>
     ${elapsedTimeCell(run.startedAt)}
     <td>${escapeHTML(formatDuration(run.durationMs))}</td>

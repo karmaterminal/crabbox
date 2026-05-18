@@ -162,7 +162,7 @@ func TestIsloCreateSandboxRejectsUnsafeWorkdirBeforeAPI(t *testing.T) {
 		cfg: Config{Islo: IsloConfig{Workdir: "../etc"}},
 		rt:  Runtime{Stderr: io.Discard},
 	}
-	_, _, _, err := backend.createSandbox(context.Background(), client, Repo{Root: t.TempDir(), Name: "repo"}, false)
+	_, _, _, err := backend.createSandbox(context.Background(), client, Repo{Root: t.TempDir(), Name: "repo"}, false, "")
 	if err == nil || !strings.Contains(err.Error(), "escapes /workspace") {
 		t.Fatalf("createSandbox err=%v, want workdir containment error", err)
 	}
@@ -178,7 +178,7 @@ func TestIsloCreateSandboxPassesRelativeWorkdirToProvider(t *testing.T) {
 		cfg: Config{Islo: IsloConfig{Workdir: "team/repo"}},
 		rt:  Runtime{Stderr: io.Discard},
 	}
-	_, _, _, err := backend.createSandbox(context.Background(), client, Repo{Root: t.TempDir(), Name: "repo"}, false)
+	_, _, _, err := backend.createSandbox(context.Background(), client, Repo{Root: t.TempDir(), Name: "repo"}, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,7 @@ type leaseCreateFlagValues struct {
 	Class         *string
 	ServerType    *string
 	Market        *string
+	Slug          *string
 	TTL           *time.Duration
 	Idle          *time.Duration
 	Desktop       *bool
@@ -30,6 +31,7 @@ func registerLeaseCreateFlags(fs *flag.FlagSet, defaults Config) leaseCreateFlag
 		Class:         fs.String("class", defaults.Class, "machine class"),
 		ServerType:    fs.String("type", getenv("CRABBOX_SERVER_TYPE", ""), "provider server/instance type"),
 		Market:        fs.String("market", defaults.Capacity.Market, "capacity market: spot or on-demand"),
+		Slug:          fs.String("slug", "", "request a friendly slug for a new lease"),
 		TTL:           fs.Duration("ttl", defaults.TTL, "maximum lease lifetime"),
 		Idle:          fs.Duration("idle-timeout", defaults.IdleTimeout, "idle timeout"),
 		Desktop:       fs.Bool("desktop", defaults.Desktop, "provision or require a visible desktop/VNC session"),

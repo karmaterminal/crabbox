@@ -176,7 +176,7 @@ func TestCloudflareCreateSandboxSendsInstanceType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := backend.createSandbox(context.Background(), client, Repo{Name: "my-app", Root: t.TempDir()}, false); err != nil {
+	if _, _, _, err := backend.createSandbox(context.Background(), client, Repo{Name: "my-app", Root: t.TempDir()}, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got.InstanceType != "standard-4" {

@@ -700,11 +700,14 @@ func TestCheckpointForkReleasesLeaseWhenKeepFalse(t *testing.T) {
 
 	var stdout bytes.Buffer
 	app := App{Stdout: &stdout, Stderr: io.Discard}
-	if err := app.checkpointFork(context.Background(), []string{record.ID, "--keep=false"}); err != nil {
+	if err := app.checkpointFork(context.Background(), []string{record.ID, "--keep=false", "--slug", "Fork Smoke"}); err != nil {
 		t.Fatal(err)
 	}
 	if backend.acquireKeep {
 		t.Fatal("acquire Keep=true, want false")
+	}
+	if backend.acquireSlug != "fork-smoke" {
+		t.Fatalf("acquire slug=%q, want fork-smoke", backend.acquireSlug)
 	}
 	if backend.releaseCount != 1 {
 		t.Fatalf("releaseCount=%d, want 1", backend.releaseCount)
@@ -912,6 +915,7 @@ func TestNativeCheckpointResourceIDAllowsAzureGCPResourceOnlyRecords(t *testing.
 type checkpointForkReleaseBackend struct {
 	leaseID      string
 	acquireKeep  bool
+	acquireSlug  string
 	releaseCount int
 }
 
@@ -921,6 +925,7 @@ func (b *checkpointForkReleaseBackend) Spec() ProviderSpec {
 
 func (b *checkpointForkReleaseBackend) Acquire(_ context.Context, req AcquireRequest) (LeaseTarget, error) {
 	b.acquireKeep = req.Keep
+	b.acquireSlug = req.RequestedSlug
 	return LeaseTarget{
 		Server:  Server{Provider: "aws", CloudID: "i-123", Labels: map[string]string{}},
 		SSH:     SSHTarget{User: "crabbox", Port: "22", TargetOS: targetLinux},

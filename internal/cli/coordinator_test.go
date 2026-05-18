@@ -67,7 +67,7 @@ func TestCoordinatorRunEvents(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&createBody); err != nil {
 				t.Fatal(err)
 			}
-			_, _ = w.Write([]byte(`{"run":{"id":"run_123","leaseID":"","owner":"peter@example.com","org":"openclaw","provider":"aws","class":"standard","serverType":"t3.small","command":["pnpm","test"],"state":"running","phase":"starting","logBytes":0,"logTruncated":false,"startedAt":"2026-05-02T00:00:00Z"}}`))
+			_, _ = w.Write([]byte(`{"run":{"id":"run_123","leaseID":"","owner":"peter@example.com","org":"openclaw","provider":"aws","class":"standard","serverType":"t3.small","command":["pnpm","test"],"label":"smoke","state":"running","phase":"starting","logBytes":0,"logTruncated":false,"startedAt":"2026-05-02T00:00:00Z"}}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/runs/run_123/events":
 			if err := json.NewDecoder(r.Body).Decode(&eventBody); err != nil {
 				t.Fatal(err)
@@ -91,7 +91,7 @@ func TestCoordinatorRunEvents(t *testing.T) {
 		Provider:   "aws",
 		Class:      "standard",
 		ServerType: "t3.small",
-	}, []string{"pnpm", "test"})
+	}, []string{"pnpm", "test"}, "smoke")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +100,9 @@ func TestCoordinatorRunEvents(t *testing.T) {
 	}
 	if got, ok := createBody["leaseID"].(string); !ok || got != "" {
 		t.Fatalf("leaseID body=%#v", createBody["leaseID"])
+	}
+	if got, ok := createBody["label"].(string); !ok || got != "smoke" {
+		t.Fatalf("label body=%#v", createBody["label"])
 	}
 	event, err := client.AppendRunEvent(context.Background(), run.ID, CoordinatorRunEventInput{Type: "sync.started", Phase: "sync"})
 	if err != nil {

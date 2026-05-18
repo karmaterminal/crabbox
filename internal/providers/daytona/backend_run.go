@@ -22,7 +22,7 @@ func (b *daytonaLeaseBackend) Warmup(ctx context.Context, req WarmupRequest) err
 		return exit(2, "--actions-runner is not supported for provider=daytona SDK warmup")
 	}
 	started := time.Now()
-	sandbox, leaseID, slug, err := b.createDaytonaToolboxSandbox(ctx, req.Repo, req.Keep, req.Reclaim)
+	sandbox, leaseID, slug, err := b.createDaytonaToolboxSandbox(ctx, req.Repo, req.Keep, req.Reclaim, req.RequestedSlug)
 	if err != nil {
 		return err
 	}
@@ -50,7 +50,7 @@ func (b *daytonaLeaseBackend) Run(ctx context.Context, req RunRequest) (RunResul
 	leaseID, slug := "", ""
 	acquired := false
 	if req.ID == "" {
-		sandbox, leaseID, slug, err = b.createDaytonaToolboxSandboxWithClient(ctx, client, req.Repo, req.Keep, req.Reclaim)
+		sandbox, leaseID, slug, err = b.createDaytonaToolboxSandboxWithClient(ctx, client, req.Repo, req.Keep, req.Reclaim, req.RequestedSlug)
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -111,6 +111,7 @@ func (b *daytonaLeaseBackend) Run(ctx context.Context, req RunRequest) (RunResul
 				SyncSkipped: req.NoSync,
 				TotalMs:     result.Total.Milliseconds(),
 				ExitCode:    0,
+				Label:       strings.TrimSpace(req.Label),
 			})
 			return result, err
 		}
@@ -152,6 +153,7 @@ func (b *daytonaLeaseBackend) Run(ctx context.Context, req RunRequest) (RunResul
 			CommandMs:   commandDuration.Milliseconds(),
 			TotalMs:     result.Total.Milliseconds(),
 			ExitCode:    result.ExitCode,
+			Label:       strings.TrimSpace(req.Label),
 		}); timingErr != nil {
 			return result, timingErr
 		}
@@ -213,15 +215,15 @@ func (b *daytonaLeaseBackend) Stop(ctx context.Context, req StopRequest) error {
 	return nil
 }
 
-func (b *daytonaLeaseBackend) createDaytonaToolboxSandbox(ctx context.Context, repo Repo, keep, reclaim bool) (*sdkdaytona.Sandbox, string, string, error) {
+func (b *daytonaLeaseBackend) createDaytonaToolboxSandbox(ctx context.Context, repo Repo, keep, reclaim bool, requestedSlug string) (*sdkdaytona.Sandbox, string, string, error) {
 	client, err := newDaytonaToolboxClient(b.cfg)
 	if err != nil {
 		return nil, "", "", err
 	}
-	return b.createDaytonaToolboxSandboxWithClient(ctx, client, repo, keep, reclaim)
+	return b.createDaytonaToolboxSandboxWithClient(ctx, client, repo, keep, reclaim, requestedSlug)
 }
 
-func (b *daytonaLeaseBackend) createDaytonaToolboxSandboxWithClient(ctx context.Context, client *sdkdaytona.Client, repo Repo, keep, reclaim bool) (*sdkdaytona.Sandbox, string, string, error) {
+func (b *daytonaLeaseBackend) createDaytonaToolboxSandboxWithClient(ctx context.Context, client *sdkdaytona.Client, repo Repo, keep, reclaim bool, requestedSlug string) (*sdkdaytona.Sandbox, string, string, error) {
 	if strings.TrimSpace(b.cfg.Daytona.Snapshot) == "" {
 		return nil, "", "", exit(2, "provider=daytona requires --daytona-snapshot or daytona.snapshot")
 	}
@@ -234,7 +236,10 @@ func (b *daytonaLeaseBackend) createDaytonaToolboxSandboxWithClient(ctx context.
 	if err != nil {
 		return nil, "", "", daytonaError("list sandboxes", err)
 	}
-	slug := allocateDirectLeaseSlug(leaseID, daytonaSandboxesToServers(existing, b.cfg))
+	slug, err := allocateDirectLeaseSlug(leaseID, requestedSlug, daytonaSandboxesToServers(existing, b.cfg))
+	if err != nil {
+		return nil, "", "", err
+	}
 	cfg := b.cfg
 	cfg.Provider = daytonaProvider
 	cfg.ServerType = "snapshot"

@@ -72,8 +72,8 @@ func leaseProviderName(leaseID, slug string) string {
 	return core.LeaseProviderName(leaseID, slug)
 }
 
-func allocateDirectLeaseSlug(leaseID string, servers []Server) string {
-	return core.AllocateDirectLeaseSlug(leaseID, servers)
+func allocateDirectLeaseSlug(leaseID, requested string, servers []Server) (string, error) {
+	return core.AllocateDirectLeaseSlug(leaseID, requested, servers)
 }
 
 func serverSlug(server Server) string {

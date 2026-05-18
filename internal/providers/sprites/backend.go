@@ -94,7 +94,10 @@ func (b *spritesBackend) Acquire(ctx context.Context, req AcquireRequest) (Lease
 		return LeaseTarget{}, err
 	}
 	leaseID := newLeaseID()
-	slug := newLeaseSlug(leaseID)
+	slug, err := allocateClaimLeaseSlug(leaseID, req.RequestedSlug)
+	if err != nil {
+		return LeaseTarget{}, err
+	}
 	name := leaseProviderName(leaseID, slug)
 	keyPath, publicKey, err := ensureTestboxKey(leaseID)
 	if err != nil {

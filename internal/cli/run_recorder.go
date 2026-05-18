@@ -18,6 +18,7 @@ const (
 type runRecorder struct {
 	coord            *CoordinatorClient
 	command          []string
+	label            string
 	runID            string
 	stderr           io.Writer
 	deferUntilLease  bool
@@ -34,12 +35,12 @@ type runRecorder struct {
 	telemetryDone    chan struct{}
 }
 
-func newRunRecorder(ctx context.Context, coord *CoordinatorClient, cfg Config, command []string, stderr io.Writer) *runRecorder {
-	rec := &runRecorder{coord: coord, command: command, stderr: stderr}
+func newRunRecorder(ctx context.Context, coord *CoordinatorClient, cfg Config, command []string, label string, stderr io.Writer) *runRecorder {
+	rec := &runRecorder{coord: coord, command: command, label: strings.TrimSpace(label), stderr: stderr}
 	if coord == nil {
 		return rec
 	}
-	run, err := coord.CreateRun(ctx, "", cfg, command)
+	run, err := coord.CreateRun(ctx, "", cfg, command, rec.label)
 	if err != nil {
 		if isInvalidLeaseIDCoordinatorError(err) {
 			rec.deferUntilLease = true
@@ -82,7 +83,7 @@ func (r *runRecorder) AttachLease(leaseID, slug string, cfg Config) {
 	if r.runID == "" && r.deferUntilLease && r.coord != nil && leaseID != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), runRecorderRequestTimeout)
 		defer cancel()
-		run, err := r.coord.CreateRun(ctx, leaseID, cfg, r.command)
+		run, err := r.coord.CreateRun(ctx, leaseID, cfg, r.command, r.label)
 		if err != nil {
 			r.warn("run history create failed: %v", err)
 			return

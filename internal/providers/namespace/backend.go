@@ -35,7 +35,10 @@ func (b *namespaceLeaseBackend) Spec() ProviderSpec { return b.spec }
 
 func (b *namespaceLeaseBackend) Acquire(ctx context.Context, req AcquireRequest) (LeaseTarget, error) {
 	leaseID := newLeaseID()
-	slug := newLeaseSlug(leaseID)
+	slug, err := allocateClaimLeaseSlug(leaseID, req.RequestedSlug)
+	if err != nil {
+		return LeaseTarget{}, err
+	}
 	name := leaseProviderName(leaseID, slug)
 	cfg := b.namespaceConfigForRun()
 	size := namespaceSize(cfg)

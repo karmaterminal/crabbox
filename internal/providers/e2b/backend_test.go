@@ -366,7 +366,7 @@ func TestE2BCreateSandboxRejectsUnsafeWorkdirBeforeAPI(t *testing.T) {
 		cfg: Config{E2B: E2BConfig{Workdir: "/"}},
 		rt:  Runtime{Stderr: io.Discard},
 	}
-	_, _, _, err := backend.createSandbox(context.Background(), client, Repo{}, false, false)
+	_, _, _, err := backend.createSandbox(context.Background(), client, Repo{}, false, false, "")
 	if err == nil || !strings.Contains(err.Error(), "too broad") {
 		t.Fatalf("err=%v, want unsafe workspace error", err)
 	}
@@ -408,7 +408,7 @@ func TestE2BCreateSandboxCapsDefaultTTL(t *testing.T) {
 		},
 		rt: Runtime{Stdout: io.Discard, Stderr: io.Discard},
 	}
-	_, _, _, err := backend.createSandbox(context.Background(), client, Repo{Root: t.TempDir(), Name: "repo"}, true, false)
+	_, _, _, err := backend.createSandbox(context.Background(), client, Repo{Root: t.TempDir(), Name: "repo"}, true, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

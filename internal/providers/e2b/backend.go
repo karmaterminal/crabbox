@@ -83,7 +83,7 @@ func (b *e2bBackend) Warmup(ctx context.Context, req WarmupRequest) error {
 	if err != nil {
 		return err
 	}
-	leaseID, sandbox, slug, err := b.createSandbox(ctx, client, req.Repo, req.Keep, req.Reclaim)
+	leaseID, sandbox, slug, err := b.createSandbox(ctx, client, req.Repo, req.Keep, req.Reclaim, req.RequestedSlug)
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func (b *e2bBackend) Run(ctx context.Context, req RunRequest) (RunResult, error)
 	acquired := false
 	if req.ID == "" {
 		var sandbox e2bSandbox
-		leaseID, sandbox, slug, err = b.createSandbox(ctx, client, req.Repo, req.Keep, req.Reclaim)
+		leaseID, sandbox, slug, err = b.createSandbox(ctx, client, req.Repo, req.Keep, req.Reclaim, req.RequestedSlug)
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -179,6 +179,7 @@ func (b *e2bBackend) Run(ctx context.Context, req RunRequest) (RunResult, error)
 				SyncSkipped:   req.NoSync,
 				TotalMs:       result.Total.Milliseconds(),
 				ExitCode:      0,
+				Label:         strings.TrimSpace(req.Label),
 			})
 			return result, err
 		}
@@ -223,6 +224,7 @@ func (b *e2bBackend) Run(ctx context.Context, req RunRequest) (RunResult, error)
 			CommandMs:     commandDuration.Milliseconds(),
 			TotalMs:       result.Total.Milliseconds(),
 			ExitCode:      result.ExitCode,
+			Label:         strings.TrimSpace(req.Label),
 		}); err != nil {
 			return result, err
 		}
@@ -305,9 +307,12 @@ func (b *e2bBackend) Stop(ctx context.Context, req StopRequest) error {
 	return nil
 }
 
-func (b *e2bBackend) createSandbox(ctx context.Context, client e2bAPI, repo Repo, keep, reclaim bool) (string, e2bSandbox, string, error) {
+func (b *e2bBackend) createSandbox(ctx context.Context, client e2bAPI, repo Repo, keep, reclaim bool, requestedSlug string) (string, e2bSandbox, string, error) {
 	leaseID := newLeaseID()
-	slug := newLeaseSlug(leaseID)
+	slug, err := allocateClaimLeaseSlug(leaseID, requestedSlug)
+	if err != nil {
+		return "", e2bSandbox{}, "", err
+	}
 	template := blank(b.cfg.E2B.Template, "base")
 	cfg := b.cfg
 	workspace, err := cleanE2BWorkspacePath(e2bWorkspacePath(cfg))

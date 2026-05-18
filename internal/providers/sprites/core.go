@@ -58,6 +58,10 @@ func normalizeLeaseSlug(value string) string {
 	return core.NormalizeLeaseSlug(value)
 }
 
+func allocateClaimLeaseSlug(leaseID, requested string) (string, error) {
+	return core.AllocateClaimLeaseSlug(leaseID, requested)
+}
+
 func leaseProviderName(leaseID, slug string) string {
 	return core.LeaseProviderName(leaseID, slug)
 }

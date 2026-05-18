@@ -183,10 +183,11 @@ type LeaseOptions struct {
 }
 
 type AcquireRequest struct {
-	Repo    Repo
-	Options LeaseOptions
-	Keep    bool
-	Reclaim bool
+	Repo          Repo
+	Options       LeaseOptions
+	Keep          bool
+	Reclaim       bool
+	RequestedSlug string
 }
 
 type ResolveRequest struct {
@@ -241,6 +242,8 @@ type RunRequest struct {
 	FreshPR         FreshPRSpec
 	ApplyLocalPatch bool
 	Command         []string
+	Label           string
+	RequestedSlug   string
 	TimingJSON      bool
 	ArtifactGlobs   []string
 	EmitProof       string
@@ -254,6 +257,7 @@ type WarmupRequest struct {
 	Keep          bool
 	Reclaim       bool
 	ActionsRunner bool
+	RequestedSlug string
 	TimingJSON    bool
 }
 

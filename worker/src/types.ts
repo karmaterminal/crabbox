@@ -302,6 +302,7 @@ export interface RunRecord {
   class: string;
   serverType: string;
   command: string[];
+  label?: string;
   state: "running" | "succeeded" | "failed";
   phase?: string;
   exitCode?: number;
@@ -326,6 +327,7 @@ export interface RunCreateRequest {
   class?: string;
   serverType?: string;
   command?: string[];
+  label?: string;
 }
 
 export interface RunFinishRequest {

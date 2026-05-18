@@ -30,7 +30,7 @@ func (b *modalBackend) Warmup(ctx context.Context, req WarmupRequest) error {
 	if err != nil {
 		return err
 	}
-	leaseID, sandbox, slug, err := b.createSandbox(ctx, client, req.Repo, req.Keep, req.Reclaim)
+	leaseID, sandbox, slug, err := b.createSandbox(ctx, client, req.Repo, req.Keep, req.Reclaim, req.RequestedSlug)
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func (b *modalBackend) Run(ctx context.Context, req RunRequest) (RunResult, erro
 	acquired := false
 	if req.ID == "" {
 		var sandbox modalSandbox
-		leaseID, sandbox, slug, err = b.createSandbox(ctx, client, req.Repo, req.Keep, req.Reclaim)
+		leaseID, sandbox, slug, err = b.createSandbox(ctx, client, req.Repo, req.Keep, req.Reclaim, req.RequestedSlug)
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -121,6 +121,7 @@ func (b *modalBackend) Run(ctx context.Context, req RunRequest) (RunResult, erro
 				SyncSkipped:   req.NoSync,
 				TotalMs:       result.Total.Milliseconds(),
 				ExitCode:      0,
+				Label:         strings.TrimSpace(req.Label),
 			})
 			return result, err
 		}
@@ -174,6 +175,7 @@ func (b *modalBackend) Run(ctx context.Context, req RunRequest) (RunResult, erro
 			CommandMs:     commandDuration.Milliseconds(),
 			TotalMs:       result.Total.Milliseconds(),
 			ExitCode:      result.ExitCode,
+			Label:         strings.TrimSpace(req.Label),
 		}); err != nil {
 			return result, err
 		}
@@ -256,13 +258,16 @@ func (b *modalBackend) Stop(ctx context.Context, req StopRequest) error {
 	return nil
 }
 
-func (b *modalBackend) createSandbox(ctx context.Context, client modalAPI, repo Repo, keep, reclaim bool) (string, modalSandbox, string, error) {
+func (b *modalBackend) createSandbox(ctx context.Context, client modalAPI, repo Repo, keep, reclaim bool, requestedSlug string) (string, modalSandbox, string, error) {
 	workspace, err := cleanModalWorkdir(modalWorkdir(b.cfg))
 	if err != nil {
 		return "", modalSandbox{}, "", err
 	}
 	leaseID := newLeaseID()
-	slug := newLeaseSlug(leaseID)
+	slug, err := allocateClaimLeaseSlug(leaseID, requestedSlug)
+	if err != nil {
+		return "", modalSandbox{}, "", err
+	}
 	cfg := b.cfg
 	cfg.TTL = modalTimeoutDuration(cfg.TTL)
 	cfg.ServerType = modalImage(cfg)

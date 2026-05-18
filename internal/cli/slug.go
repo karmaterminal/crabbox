@@ -9,6 +9,8 @@ import (
 
 var canonicalLeaseIDPattern = regexp.MustCompile(`^cbx_[a-f0-9]{12}$`)
 
+const maxRequestedLeaseSlugLength = 41
+
 var leaseSlugAdjectives = []string{
 	"amber",
 	"blue",
@@ -49,6 +51,9 @@ func slugWithCollisionSuffix(base, seed string) string {
 	if base == "" {
 		base = newLeaseSlug(seed)
 	}
+	if len(base) > maxRequestedLeaseSlugLength {
+		base = strings.Trim(base[:maxRequestedLeaseSlugLength], "-")
+	}
 	return fmt.Sprintf("%s-%04x", base, leaseSlugHash(seed)&0xffff)
 }
 
@@ -71,6 +76,20 @@ func normalizeLeaseSlug(value string) string {
 	return strings.Trim(out.String(), "-")
 }
 
+func requestedLeaseSlug(value string) (string, error) {
+	if strings.TrimSpace(value) == "" {
+		return "", nil
+	}
+	slug := normalizeLeaseSlug(value)
+	if slug == "" {
+		return "", exit(2, "--slug must contain at least one letter or digit")
+	}
+	if len(slug) > maxRequestedLeaseSlugLength {
+		return "", exit(2, "--slug must be %d characters or fewer after normalization", maxRequestedLeaseSlugLength)
+	}
+	return slug, nil
+}
+
 func leaseProviderName(leaseID, slug string) string {
 	if slug = normalizeLeaseSlug(slug); slug != "" {
 		return fmt.Sprintf("crabbox-%s-%08x", slug, leaseSlugHash(leaseID))
@@ -78,16 +97,60 @@ func leaseProviderName(leaseID, slug string) string {
 	return strings.ReplaceAll("crabbox-"+leaseID, "_", "-")
 }
 
-func allocateDirectLeaseSlug(leaseID string, servers []Server) string {
-	base := newLeaseSlug(leaseID)
+func allocateDirectLeaseSlug(leaseID, requested string, servers []Server) (string, error) {
+	base := normalizeLeaseSlug(requested)
+	checkClaims := base != ""
+	if base == "" {
+		base = newLeaseSlug(leaseID)
+	}
 	slug := base
 	for attempt := 0; attempt < 20; attempt++ {
-		if !serverSlugInUse(slug, servers) {
-			return slug
+		inUse := serverSlugInUse(slug, servers)
+		if !inUse && checkClaims {
+			var err error
+			inUse, err = claimSlugInUse(slug, leaseID)
+			if err != nil {
+				return "", err
+			}
+		}
+		if !inUse {
+			return slug, nil
 		}
 		slug = slugWithCollisionSuffix(base, fmt.Sprintf("%s-%d", leaseID, attempt))
 	}
-	return slugWithCollisionSuffix(base, leaseID)
+	return slugWithCollisionSuffix(base, leaseID), nil
+}
+
+func allocateClaimLeaseSlug(leaseID, requested string) (string, error) {
+	base := normalizeLeaseSlug(requested)
+	if base == "" {
+		return newLeaseSlug(leaseID), nil
+	}
+	slug := base
+	for attempt := 0; attempt < 20; attempt++ {
+		inUse, err := claimSlugInUse(slug, leaseID)
+		if err != nil {
+			return "", err
+		}
+		if !inUse {
+			return slug, nil
+		}
+		slug = slugWithCollisionSuffix(base, fmt.Sprintf("%s-%d", leaseID, attempt))
+	}
+	return slugWithCollisionSuffix(base, leaseID), nil
+}
+
+func claimSlugInUse(slug, leaseID string) (bool, error) {
+	slug = normalizeLeaseSlug(slug)
+	if slug == "" {
+		return false, nil
+	}
+	_, ok, err := findLeaseClaim(slug, func(candidate leaseClaim) bool {
+		return candidate.LeaseID != "" &&
+			candidate.LeaseID != leaseID &&
+			normalizeLeaseSlug(candidate.Slug) == slug
+	})
+	return ok, err
 }
 
 func serverSlugInUse(slug string, servers []Server) bool {

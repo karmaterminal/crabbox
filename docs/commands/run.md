@@ -15,6 +15,8 @@ crabbox run --id blue-lobster --shell 'pnpm install --frozen-lockfile && pnpm te
 crabbox run --id blue-lobster --script ./scripts/live-smoke.sh
 crabbox run --env-from-profile ~/.project-live.profile --allow-env API_TOKEN --script ./scripts/live-smoke.sh
 crabbox run --id blue-lobster --full-resync -- pnpm check:changed
+crabbox run --label "update flow smoke" -- pnpm test:changed
+crabbox run --slug update-flow-smoke -- pnpm test:changed
 crabbox run --id blue-lobster --env-from-profile ~/.project-live.profile --allow-env OPENAI_API_KEY --env-helper live -- ./.crabbox/env/live pnpm test:live
 crabbox run --fresh-pr acme/app#123 --script ./scripts/e2e-smoke.sh
 crabbox run --id cbx_abcdef123456 --junit junit.xml -- go test ./...
@@ -189,6 +191,10 @@ duration, command duration, total duration, whether sync was skipped by
 fingerprint, and the remote exit code. It also prints run details with provider,
 lease ID, slug, run ID, machine type, repo path, remote workdir, Actions URL
 when present, stop command, and idle timeout.
+Use `--label <text>` to attach a short human-readable label to the run details,
+timing JSON, and coordinator run record when available.
+Use `--slug <slug>` only when creating a fresh lease. Crabbox normalizes the
+requested slug and may add a suffix when an active lease already uses it.
 
 Use `--capture-stdout <path>` when stdout is binary or terminal-hostile. Crabbox
 writes the remote stdout bytes directly to the local file, leaves stderr on the
@@ -299,6 +305,7 @@ Flags:
 --type <provider-type>
 --azure-os-disk managed|ephemeral|auto
 --market spot|on-demand
+--slug <slug>
 --ttl <duration>
 --idle-timeout <duration>
 --desktop
@@ -332,6 +339,7 @@ Flags:
 --capture-stderr <local path>
 --capture-on-fail
 --download <remote=local>
+--label <text>
 --reclaim
 --timing-json
 --blacksmith-org <org>

@@ -415,6 +415,10 @@ func (a App) checkpointFork(ctx context.Context, args []string) (err error) {
 	if err := parseInterspersedFlags(fs, args); err != nil {
 		return err
 	}
+	requestedSlug, err := requestedLeaseSlug(*leaseFlags.Slug)
+	if err != nil {
+		return err
+	}
 	if fs.NArg() != 1 {
 		return exit(2, "usage: crabbox checkpoint fork <checkpoint-id> [--class <class>]")
 	}
@@ -460,7 +464,7 @@ func (a App) checkpointFork(ctx context.Context, args []string) (err error) {
 	if !ok {
 		return exit(2, "provider=%s does not support checkpoint fork", backend.Spec().Name)
 	}
-	lease, err := sshBackend.Acquire(ctx, AcquireRequest{Repo: repo, Options: leaseOptionsFromConfig(cfg), Keep: *keep, Reclaim: *reclaim})
+	lease, err := sshBackend.Acquire(ctx, AcquireRequest{Repo: repo, Options: leaseOptionsFromConfig(cfg), Keep: *keep, Reclaim: *reclaim, RequestedSlug: requestedSlug})
 	if err != nil {
 		return err
 	}

@@ -119,7 +119,7 @@ func (b *isloBackend) Warmup(ctx context.Context, req WarmupRequest) error {
 	if err != nil {
 		return err
 	}
-	leaseID, name, slug, err := b.createSandbox(ctx, client, req.Repo, req.Reclaim)
+	leaseID, name, slug, err := b.createSandbox(ctx, client, req.Repo, req.Reclaim, req.RequestedSlug)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func (b *isloBackend) Run(ctx context.Context, req RunRequest) (RunResult, error
 	leaseID, name, slug := "", "", ""
 	acquired := false
 	if req.ID == "" {
-		leaseID, name, slug, err = b.createSandbox(ctx, client, req.Repo, req.Reclaim)
+		leaseID, name, slug, err = b.createSandbox(ctx, client, req.Repo, req.Reclaim, req.RequestedSlug)
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -221,6 +221,7 @@ func (b *isloBackend) Run(ctx context.Context, req RunRequest) (RunResult, error
 			CommandMs:     result.Command.Milliseconds(),
 			TotalMs:       result.Total.Milliseconds(),
 			ExitCode:      exitCode,
+			Label:         strings.TrimSpace(req.Label),
 		}); err != nil {
 			return result, err
 		}
@@ -306,7 +307,7 @@ func (b *isloBackend) Stop(ctx context.Context, req StopRequest) error {
 	return nil
 }
 
-func (b *isloBackend) createSandbox(ctx context.Context, client isloAPI, repo Repo, reclaim bool) (string, string, string, error) {
+func (b *isloBackend) createSandbox(ctx context.Context, client isloAPI, repo Repo, reclaim bool, requestedSlug string) (string, string, string, error) {
 	workdir, err := isloRelativeWorkdir(b.cfg)
 	if err != nil {
 		return "", "", "", err
@@ -340,7 +341,11 @@ func (b *isloBackend) createSandbox(ctx context.Context, client isloAPI, repo Re
 		return "", "", "", exit(5, "islo create sandbox returned no name")
 	}
 	leaseID := isloLeasePrefix + sandbox.GetName()
-	slug := newLeaseSlug(leaseID)
+	slug, err := allocateClaimLeaseSlug(leaseID, requestedSlug)
+	if err != nil {
+		_ = client.DeleteSandbox(context.Background(), sandbox.GetName())
+		return "", "", "", err
+	}
 	if err := claimLeaseForRepoProvider(leaseID, slug, isloProvider, repo.Root, b.cfg.IdleTimeout, reclaim); err != nil {
 		_ = client.DeleteSandbox(context.Background(), sandbox.GetName())
 		return "", "", "", err

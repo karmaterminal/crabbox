@@ -19,13 +19,16 @@ func (b *coordinatorLeaseBackend) Spec() ProviderSpec { return b.spec }
 
 func (b *coordinatorLeaseBackend) Acquire(ctx context.Context, req AcquireRequest) (LeaseTarget, error) {
 	return acquireAttemptsRetry(b.rt, req.Keep, func() (LeaseTarget, error) {
-		return b.acquireOnce(ctx, req.Keep)
+		return b.acquireOnce(ctx, req.Keep, req.RequestedSlug)
 	})
 }
 
-func (b *coordinatorLeaseBackend) acquireOnce(ctx context.Context, keep bool) (LeaseTarget, error) {
+func (b *coordinatorLeaseBackend) acquireOnce(ctx context.Context, keep bool, requestedSlug string) (LeaseTarget, error) {
 	leaseID := newLeaseID()
-	slug := newLeaseSlug(leaseID)
+	slug, err := allocateClaimLeaseSlug(leaseID, requestedSlug)
+	if err != nil {
+		return LeaseTarget{}, err
+	}
 	keyPath, publicKey, err := ensureTestboxKeyForConfig(b.cfg, leaseID)
 	if err != nil {
 		return LeaseTarget{}, err
@@ -34,7 +37,7 @@ func (b *coordinatorLeaseBackend) acquireOnce(ctx context.Context, keep bool) (L
 	cfg.SSHKey = keyPath
 	cfg.ProviderKey = providerKeyForLease(leaseID)
 	if cfg.Tailscale.Enabled && cfg.Tailscale.Hostname == "" {
-		cfg.Tailscale.Hostname = renderTailscaleHostname(cfg.Tailscale.HostnameTemplate, leaseID, slug, cfg.Provider)
+		cfg.Tailscale.Hostname = cfg.Tailscale.HostnameTemplate
 	}
 	ensureAWSSSHCIDRs(ctx, &cfg)
 	fmt.Fprintf(b.rt.Stderr, "coordinator lease class=%s preferred_type=%s keep=%v slug=%s idle_timeout=%s ttl=%s\n", cfg.Class, cfg.ServerType, keep, slug, cfg.IdleTimeout, cfg.TTL)

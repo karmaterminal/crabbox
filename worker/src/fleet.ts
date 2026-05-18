@@ -3074,6 +3074,10 @@ export class FleetDurableObject implements DurableObject {
     if (lease?.slug) {
       run.slug = lease.slug;
     }
+    const label = sanitizeRunLabel(input.label);
+    if (label) {
+      run.label = label;
+    }
     await this.putRun(run);
     await this.appendRunEventRecord(run, { type: "run.started", phase: "starting" });
     return json({ run }, { status: 201 });
@@ -5284,6 +5288,14 @@ function applyRunEventSummary(run: RunRecord, event: RunEventRecord): void {
     run.phase = "failed";
     run.endedAt = event.createdAt;
   }
+}
+
+function sanitizeRunLabel(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const label = value.trim().replace(/\s+/g, " ");
+  return label ? label.slice(0, 120) : undefined;
 }
 
 function phaseForRunEvent(event: RunEventRecord): string {
