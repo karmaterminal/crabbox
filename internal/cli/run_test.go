@@ -256,6 +256,24 @@ func TestTimingJSONIncludesActionsRunURLWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestTimingJSONIncludesLabelWhenAvailable(t *testing.T) {
+	var buf bytes.Buffer
+	report := timingReportFromRun("aws", "cbx_123", "blue-crab", runTimings{}, time.Second, 0)
+	report.Label = "update flow smoke"
+	if err := writeTimingJSON(&buf, report); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Label string `json:"label"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Label != "update flow smoke" {
+		t.Fatalf("label=%q", got.Label)
+	}
+}
+
 func TestRunCommandRejectsUnsupportedDelegatedCaptureOptions(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -291,6 +309,22 @@ func TestRunCommandRejectsUnsupportedDelegatedCaptureOptions(t *testing.T) {
 				t.Fatalf("message=%q want %q", exitErr.Message, tt.want)
 			}
 		})
+	}
+}
+
+func TestRunCommandRejectsSlugWithExistingLease(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := (App{Stdout: &stdout, Stderr: &stderr}).runCommand(context.Background(), []string{
+		"--id", "blue-lobster",
+		"--slug", "update-flow-smoke",
+		"--", "true",
+	})
+	var exitErr ExitError
+	if !AsExitError(err, &exitErr) || exitErr.Code != 2 {
+		t.Fatalf("err=%v, want exit 2", err)
+	}
+	if !strings.Contains(exitErr.Message, "--slug only applies when creating a new lease") {
+		t.Fatalf("message=%q", exitErr.Message)
 	}
 }
 
@@ -1570,6 +1604,36 @@ func TestApplyCapacityMarketFlag(t *testing.T) {
 	}
 	if err := applyCapacityMarketFlag(&cfg, fs, *market); err == nil {
 		t.Fatal("expected invalid market failure")
+	}
+}
+
+func TestApplyLeaseCreateFlagsForExistingAWSMacOSLeaseDefaultsOnDemand(t *testing.T) {
+	fs := newFlagSet("test", io.Discard)
+	values := registerLeaseCreateFlags(fs, defaultConfig())
+	if err := parseFlags(fs, []string{"--provider", "aws", "--target", "macos"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.Coordinator = "https://broker.example.test"
+	if err := applyLeaseCreateFlagsForLease(&cfg, fs, values, "cbx_123"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Capacity.Market != "on-demand" {
+		t.Fatalf("market=%s want on-demand", cfg.Capacity.Market)
+	}
+}
+
+func TestApplyLeaseCreateFlagsForExistingAWSMacOSLeaseRejectsExplicitSpot(t *testing.T) {
+	fs := newFlagSet("test", io.Discard)
+	values := registerLeaseCreateFlags(fs, defaultConfig())
+	if err := parseFlags(fs, []string{"--provider", "aws", "--target", "macos", "--market", "spot"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.Coordinator = "https://broker.example.test"
+	err := applyLeaseCreateFlagsForLease(&cfg, fs, values, "cbx_123")
+	if err == nil || !strings.Contains(err.Error(), "requires --market on-demand") {
+		t.Fatalf("err=%v, want explicit spot rejection", err)
 	}
 }
 

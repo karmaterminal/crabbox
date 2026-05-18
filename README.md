@@ -99,7 +99,7 @@ crabbox ssh --id blue-lobster
 crabbox stop blue-lobster
 ```
 
-Every lease has a stable `cbx_...` ID and a friendly crustacean slug (`blue-lobster`, `swift-hermit`, …). Either works wherever an `--id` is accepted.
+Every lease has a stable `cbx_...` ID and a friendly crustacean slug (`blue-lobster`, `swift-hermit`, …). Either works wherever an `--id` is accepted. Use `--slug <name>` on fresh leases when a specific reusable slug helps, and `--label <text>` on `run` when the history entry needs a human-readable name.
 
 ## How it works
 

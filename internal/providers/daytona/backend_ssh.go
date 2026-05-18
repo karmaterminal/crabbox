@@ -100,7 +100,10 @@ func (b *daytonaLeaseBackend) Acquire(ctx context.Context, req AcquireRequest) (
 	if err != nil {
 		return LeaseTarget{}, daytonaError("list sandboxes", err)
 	}
-	slug := allocateDirectLeaseSlug(leaseID, daytonaSandboxesToServers(existing, b.cfg))
+	slug, err := allocateDirectLeaseSlug(leaseID, req.RequestedSlug, daytonaSandboxesToServers(existing, b.cfg))
+	if err != nil {
+		return LeaseTarget{}, err
+	}
 	cfg := b.cfg
 	cfg.ServerType = "snapshot"
 	cfg.WorkRoot = daytonaWorkRoot(cfg)

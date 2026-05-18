@@ -167,19 +167,22 @@ type CoordinatorProviderReadiness struct {
 }
 
 type CoordinatorImage struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	State        string `json:"state"`
-	Provider     string `json:"provider,omitempty"`
-	Kind         string `json:"kind,omitempty"`
-	Region       string `json:"region,omitempty"`
-	Project      string `json:"project,omitempty"`
-	ResourceID   string `json:"resourceID,omitempty"`
-	Target       string `json:"target,omitempty"`
-	WindowsMode  string `json:"windowsMode,omitempty"`
-	ServerType   string `json:"serverType,omitempty"`
-	Architecture string `json:"architecture,omitempty"`
-	PromotedAt   string `json:"promotedAt,omitempty"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	State        string   `json:"state"`
+	Provider     string   `json:"provider,omitempty"`
+	Kind         string   `json:"kind,omitempty"`
+	Region       string   `json:"region,omitempty"`
+	AccountID    string   `json:"accountId,omitempty"`
+	Project      string   `json:"project,omitempty"`
+	ResourceID   string   `json:"resourceID,omitempty"`
+	SnapshotIDs  []string `json:"snapshotIds,omitempty"`
+	Direct       bool     `json:"direct,omitempty"`
+	Target       string   `json:"target,omitempty"`
+	WindowsMode  string   `json:"windowsMode,omitempty"`
+	ServerType   string   `json:"serverType,omitempty"`
+	Architecture string   `json:"architecture,omitempty"`
+	PromotedAt   string   `json:"promotedAt,omitempty"`
 }
 
 type CoordinatorMacHost struct {
@@ -333,6 +336,7 @@ type CoordinatorRun struct {
 	Class        string               `json:"class"`
 	ServerType   string               `json:"serverType"`
 	Command      []string             `json:"command"`
+	Label        string               `json:"label,omitempty"`
 	State        string               `json:"state"`
 	Phase        string               `json:"phase,omitempty"`
 	ExitCode     *int                 `json:"exitCode,omitempty"`
@@ -1232,9 +1236,9 @@ func imagePath(imageID, action string, refs ...CoordinatorImageRef) string {
 	return path
 }
 
-func (c *CoordinatorClient) CreateRun(ctx context.Context, leaseID string, cfg Config, command []string) (CoordinatorRun, error) {
+func (c *CoordinatorClient) CreateRun(ctx context.Context, leaseID string, cfg Config, command []string, label string) (CoordinatorRun, error) {
 	var res CoordinatorRunResponse
-	err := c.do(ctx, http.MethodPost, "/v1/runs", map[string]any{
+	body := map[string]any{
 		"leaseID":     leaseID,
 		"provider":    cfg.Provider,
 		"target":      cfg.TargetOS,
@@ -1242,7 +1246,11 @@ func (c *CoordinatorClient) CreateRun(ctx context.Context, leaseID string, cfg C
 		"class":       cfg.Class,
 		"serverType":  cfg.ServerType,
 		"command":     command,
-	}, &res)
+	}
+	if strings.TrimSpace(label) != "" {
+		body["label"] = strings.TrimSpace(label)
+	}
+	err := c.do(ctx, http.MethodPost, "/v1/runs", body, &res)
 	return res.Run, err
 }
 

@@ -20,6 +20,7 @@ type TimingReport struct {
 	ExitCode      int           `json:"exitCode"`
 	ActionsRunURL string        `json:"actionsRunUrl,omitempty"`
 	RunID         string        `json:"runId,omitempty"`
+	Label         string        `json:"label,omitempty"`
 	MachineType   string        `json:"machineType,omitempty"`
 	RepoPath      string        `json:"repoPath,omitempty"`
 	Workdir       string        `json:"workdir,omitempty"`

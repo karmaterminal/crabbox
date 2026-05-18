@@ -49,6 +49,10 @@ func (a App) warmup(ctx context.Context, args []string) error {
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
+	requestedSlug, err := requestedLeaseSlug(*leaseFlags.Slug)
+	if err != nil {
+		return err
+	}
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -66,7 +70,7 @@ func (a App) warmup(ctx context.Context, args []string) error {
 	}
 	options := leaseOptionsFromConfig(cfg)
 	if delegated, ok := backend.(DelegatedRunBackend); ok {
-		if err := delegated.Warmup(ctx, WarmupRequest{Repo: repo, Options: options, Keep: *keep, Reclaim: *reclaim, ActionsRunner: *actionsRunner, TimingJSON: *timingJSON}); err != nil {
+		if err := delegated.Warmup(ctx, WarmupRequest{Repo: repo, Options: options, Keep: *keep, Reclaim: *reclaim, ActionsRunner: *actionsRunner, RequestedSlug: requestedSlug, TimingJSON: *timingJSON}); err != nil {
 			return err
 		}
 		a.syncExternalRunnersBestEffort(ctx, cfg, backend)
@@ -81,7 +85,7 @@ func (a App) warmup(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	lease, err := sshBackend.Acquire(ctx, AcquireRequest{Repo: repo, Options: options, Keep: *keep, Reclaim: *reclaim})
+	lease, err := sshBackend.Acquire(ctx, AcquireRequest{Repo: repo, Options: options, Keep: *keep, Reclaim: *reclaim, RequestedSlug: requestedSlug})
 	if err != nil {
 		return err
 	}
@@ -167,6 +171,7 @@ func (a App) runCommand(ctx context.Context, args []string) (err error) {
 	freshPRValue := fs.String("fresh-pr", "", "run from a fresh remote checkout of a GitHub PR: owner/repo#123, URL, or number")
 	applyLocalPatch := fs.Bool("apply-local-patch", false, "apply the local git diff on top of --fresh-pr checkout")
 	envHelper := fs.String("env-helper", "", "persist profile env as a reusable remote helper name under .crabbox/env/")
+	runLabel := fs.String("label", "", "human-readable label for this run")
 	presetName := fs.String("preset", "", "configured profile preset to expand into a command")
 	scenario := fs.String("scenario", "", "preset variable shorthand for --preset-var scenario=<value>")
 	emitProof := fs.String("emit-proof", "", "write a generated proof block after a successful run")
@@ -203,6 +208,14 @@ func (a App) runCommand(ctx context.Context, args []string) (err error) {
 	if len(command) > 0 && command[0] == "--" {
 		command = command[1:]
 	}
+	runLabelValue := strings.TrimSpace(*runLabel)
+	requestedSlug, err := requestedLeaseSlug(*leaseFlags.Slug)
+	if err != nil {
+		return err
+	}
+	if requestedSlug != "" && strings.TrimSpace(*leaseIDFlag) != "" {
+		return exit(2, "--slug only applies when creating a new lease; omit --id or use the existing slug")
+	}
 	fullResyncRequested := *fullResync || *freshSync
 
 	cfg, err := loadConfig()
@@ -213,7 +226,7 @@ func (a App) runCommand(ctx context.Context, args []string) (err error) {
 	if err := applySelectedProfileConfig(&cfg); err != nil {
 		return err
 	}
-	if err := applyLeaseCreateFlags(&cfg, fs, leaseFlags); err != nil {
+	if err := applyLeaseCreateFlagsForLease(&cfg, fs, leaseFlags, *leaseIDFlag); err != nil {
 		return err
 	}
 	expansion, err := expandRunProfile(cfg, *presetName, *scenario, presetVars, command, *shellMode, *preflight, artifactGlobs, *proofTemplate)
@@ -364,6 +377,8 @@ func (a App) runCommand(ctx context.Context, args []string) (err error) {
 		FreshPR:         freshPR,
 		ApplyLocalPatch: *applyLocalPatch,
 		Command:         command,
+		Label:           runLabelValue,
+		RequestedSlug:   requestedSlug,
 		TimingJSON:      *timingJSON,
 		ArtifactGlobs:   expansion.ArtifactGlobs,
 		EmitProof:       strings.TrimSpace(*emitProof),
@@ -412,7 +427,7 @@ func (a App) runCommand(ctx context.Context, args []string) (err error) {
 	}
 	recordCommand := runScriptRecordCommand(script, command)
 	if useCoordinator {
-		recorder = newRunRecorder(ctx, coord, cfg, recordCommand, a.Stderr)
+		recorder = newRunRecorder(ctx, coord, cfg, recordCommand, runLabelValue, a.Stderr)
 		defer func() {
 			recorder.Failed(runFailure)
 		}()
@@ -445,7 +460,7 @@ func (a App) runCommand(ctx context.Context, args []string) (err error) {
 		}
 	} else {
 		var lease LeaseTarget
-		lease, err = sshBackend.Acquire(ctx, AcquireRequest{Repo: repo, Options: options, Keep: *keep, Reclaim: *reclaim})
+		lease, err = sshBackend.Acquire(ctx, AcquireRequest{Repo: repo, Options: options, Keep: *keep, Reclaim: *reclaim, RequestedSlug: requestedSlug})
 		if err == nil {
 			server, target, leaseID = lease.Server, lease.SSH, lease.LeaseID
 		}
@@ -816,6 +831,7 @@ afterSync:
 			total := time.Since(timings.started)
 			report := timingReportFromRunWithActionsURL(cfg.Provider, leaseID, serverSlug(server), timings, total, 0, actionsURL)
 			populateRunTimingMetadata(&report, cfg, repo, server, leaseID, recorder.runID, workdir, nil)
+			report.Label = runLabelValue
 			finalTimingReport = &report
 		}
 		recorder.Finish(ctx, target, 0, timings.sync, 0, "", false, nil)
@@ -1042,6 +1058,7 @@ afterSync:
 	total := time.Since(timings.started)
 	report := timingReportFromRunWithActionsURL(cfg.Provider, leaseID, serverSlug(server), timings, total, code, actionsURL)
 	populateRunTimingMetadata(&report, cfg, repo, server, leaseID, recorder.runID, workdir, runArtifacts)
+	report.Label = runLabelValue
 	if strings.TrimSpace(*emitProof) != "" && code == 0 {
 		template := cfg.ProofTemplates[strings.TrimSpace(*proofTemplate)]
 		proof, err := writeRunProof(strings.TrimSpace(*emitProof), strings.TrimSpace(*proofTemplate), proofRenderInput{
@@ -1069,7 +1086,11 @@ afterSync:
 	recorder.Finish(ctx, target, code, timings.sync, timings.command, logBuffer.String(), logBuffer.Truncated(), results)
 	fmt.Fprintf(a.Stderr, "command complete in %s total=%s\n", timings.command.Round(time.Millisecond), total.Round(time.Millisecond))
 	fmt.Fprintln(a.Stderr, formatRunSummary(timings, total, code))
-	fmt.Fprintf(a.Stderr, "run details provider=%s lease=%s slug=%s run=%s type=%s repo=%s workdir=%s actions=%s stop_command=%q idle_timeout=%s\n", cfg.Provider, leaseID, blank(serverSlug(server), "-"), blank(recorder.runID, "-"), blank(server.ServerType.Name, "-"), repo.Root, workdir, blank(actionsURL, "-"), report.StopCommand, cfg.IdleTimeout)
+	labelField := ""
+	if runLabelValue != "" {
+		labelField = fmt.Sprintf(" label=%q", runLabelValue)
+	}
+	fmt.Fprintf(a.Stderr, "run details provider=%s lease=%s slug=%s run=%s%s type=%s repo=%s workdir=%s actions=%s stop_command=%q idle_timeout=%s\n", cfg.Provider, leaseID, blank(serverSlug(server), "-"), blank(recorder.runID, "-"), labelField, blank(server.ServerType.Name, "-"), repo.Root, workdir, blank(actionsURL, "-"), report.StopCommand, cfg.IdleTimeout)
 	if *timingJSON {
 		finalTimingReport = &report
 	}

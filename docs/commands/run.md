@@ -15,6 +15,8 @@ crabbox run --id blue-lobster --shell 'pnpm install --frozen-lockfile && pnpm te
 crabbox run --id blue-lobster --script ./scripts/live-smoke.sh
 crabbox run --env-from-profile ~/.project-live.profile --allow-env API_TOKEN --script ./scripts/live-smoke.sh
 crabbox run --id blue-lobster --full-resync -- pnpm check:changed
+crabbox run --label "update flow smoke" -- pnpm test:changed
+crabbox run --slug update-flow-smoke -- pnpm test:changed
 crabbox run --id blue-lobster --env-from-profile ~/.project-live.profile --allow-env OPENAI_API_KEY --env-helper live -- ./.crabbox/env/live pnpm test:live
 crabbox run --fresh-pr acme/app#123 --script ./scripts/e2e-smoke.sh
 crabbox run --id cbx_abcdef123456 --junit junit.xml -- go test ./...
@@ -69,7 +71,11 @@ command through E2B process APIs. The final timing summary reports
 
 When the lease has been hydrated by `crabbox actions hydrate`, `run` reads the remote marker under `$HOME/.crabbox/actions`, syncs into the workflow's `$GITHUB_WORKSPACE`, and sources the non-secret env file written by the workflow. That preserves the setup the workflow performed: checkout path, installed dependencies, service containers, caches, runner temp/toolcache paths, and any project-specific preparation. GitHub secrets and OIDC request tokens remain workflow-step scoped unless the project explicitly persists its own short-lived credentials.
 
-If a configured Actions hydration workflow exists and a package-manager command such as `pnpm`, `npm`, `node`, or `corepack` is run before a hydration marker exists, Crabbox warns that the raw box may not have the project runtime installed. Hydrate first for CI-like setup, or include the runtime setup explicitly in the command.
+If a JavaScript package-manager command such as `pnpm`, `npm`, `node`, or
+`corepack` is run on a raw SSH workspace before a hydration marker exists,
+Crabbox probes the remote tool first. Missing tools fail before source sync with
+guidance to hydrate first, include runtime setup in the command, or choose a
+provider/image with the JavaScript toolchain.
 
 `--browser` provisions or requires a known browser binary and injects
 `CRABBOX_BROWSER=1`, `BROWSER`, and `CHROME_BIN` into the remote command. It
@@ -185,6 +191,10 @@ duration, command duration, total duration, whether sync was skipped by
 fingerprint, and the remote exit code. It also prints run details with provider,
 lease ID, slug, run ID, machine type, repo path, remote workdir, Actions URL
 when present, stop command, and idle timeout.
+Use `--label <text>` to attach a short human-readable label to the run details,
+timing JSON, and coordinator run record when available.
+Use `--slug <slug>` only when creating a fresh lease. Crabbox normalizes the
+requested slug and may add a suffix when an active lease already uses it.
 
 Use `--capture-stdout <path>` when stdout is binary or terminal-hostile. Crabbox
 writes the remote stdout bytes directly to the local file, leaves stderr on the
@@ -295,6 +305,7 @@ Flags:
 --type <provider-type>
 --azure-os-disk managed|ephemeral|auto
 --market spot|on-demand
+--slug <slug>
 --ttl <duration>
 --idle-timeout <duration>
 --desktop
@@ -328,6 +339,7 @@ Flags:
 --capture-stderr <local path>
 --capture-on-fail
 --download <remote=local>
+--label <text>
 --reclaim
 --timing-json
 --blacksmith-org <org>

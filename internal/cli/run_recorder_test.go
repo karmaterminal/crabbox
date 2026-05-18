@@ -130,7 +130,7 @@ func TestRunRecorderDefersCreateWhenCoordinatorRequiresLeaseID(t *testing.T) {
 		Provider:   "aws",
 		Class:      "standard",
 		ServerType: "t3.small",
-	}, []string{"pnpm", "test"}, &stderr)
+	}, []string{"pnpm", "test"}, "", &stderr)
 	rec.Event("leasing.started", "leasing", "")
 	rec.AttachLease("cbx_abcdef123456", "blue-lobster", Config{
 		Provider:   "aws",
@@ -180,7 +180,7 @@ func TestRunRecorderSuppressesMissingEventEndpoint(t *testing.T) {
 		Provider:   "aws",
 		Class:      "standard",
 		ServerType: "t3.small",
-	}, []string{"pnpm", "test"}, &stderr)
+	}, []string{"pnpm", "test"}, "", &stderr)
 	rec.AttachLease("cbx_abcdef123456", "blue-lobster", Config{
 		Provider:   "aws",
 		Class:      "standard",

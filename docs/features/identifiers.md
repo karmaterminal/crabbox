@@ -49,11 +49,21 @@ amber-crab
 silver-shrimp
 ```
 
-Slugs are generated from a stable hash of the lease ID, so the same lease
-always gets the same slug. The vocabulary is small (14 adjectives, 8 nouns)
-because Crabbox is intentionally a small fleet. When a slug collides with an
-existing active lease, `slugWithCollisionSuffix` appends a 4-hex suffix
-keyed by the seed:
+By default, slugs are generated from a stable hash of the lease ID, so the same
+lease always gets the same generated slug. The vocabulary is small (14
+adjectives, 8 nouns) because Crabbox is intentionally a small fleet. Fresh lease
+commands can request a custom slug with `--slug <name>`:
+
+```sh
+crabbox warmup --slug update-flow-smoke
+crabbox run --slug update-flow-smoke -- pnpm test:changed
+crabbox checkpoint fork chk_abc123 --slug update-flow-smoke
+```
+
+`--slug` is creation-time metadata, not a rename operation. It is accepted only
+when Crabbox is creating a new lease; existing leases keep their assigned slug.
+When a requested or generated slug collides with an existing active lease,
+`slugWithCollisionSuffix` appends a 4-hex suffix keyed by the seed:
 
 ```text
 blue-lobster-1234
@@ -64,7 +74,10 @@ rarely exceed the 14 × 8 = 112 unique base slugs.
 
 Slugs are normalized everywhere they are accepted. `normalizeLeaseSlug` keeps
 only `[a-z0-9-]`, collapses runs of separators, and trims leading/trailing
-dashes. `Blue_Lobster` and `BLUE-LOBSTER` resolve to `blue-lobster`.
+dashes. `Blue_Lobster` and `BLUE-LOBSTER` resolve to `blue-lobster`. Requested
+slugs must still contain at least one letter or digit and are capped at 41
+characters after normalization so collision suffixes and provider names stay
+portable.
 
 ## Provider Name
 

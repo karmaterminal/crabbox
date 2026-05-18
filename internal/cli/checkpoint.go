@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -52,16 +51,19 @@ type checkpointRecord struct {
 	ArchivePath    string `json:"archivePath,omitempty"`
 	ArchiveBytes   int64  `json:"archiveBytes,omitempty"`
 	Native         struct {
-		Provider string `json:"provider,omitempty"`
-		ImageID  string `json:"imageId,omitempty"`
-		Kind     string `json:"kind,omitempty"`
-		Name     string `json:"name,omitempty"`
-		State    string `json:"state,omitempty"`
-		Region   string `json:"region,omitempty"`
-		Project  string `json:"project,omitempty"`
-		Resource string `json:"resource,omitempty"`
-		Strategy string `json:"strategy,omitempty"`
-		NoReboot bool   `json:"noReboot,omitempty"`
+		Provider    string   `json:"provider,omitempty"`
+		ImageID     string   `json:"imageId,omitempty"`
+		Kind        string   `json:"kind,omitempty"`
+		Name        string   `json:"name,omitempty"`
+		State       string   `json:"state,omitempty"`
+		Region      string   `json:"region,omitempty"`
+		AccountID   string   `json:"accountId,omitempty"`
+		Project     string   `json:"project,omitempty"`
+		Resource    string   `json:"resource,omitempty"`
+		SnapshotIDs []string `json:"snapshotIds,omitempty"`
+		Direct      bool     `json:"direct,omitempty"`
+		Strategy    string   `json:"strategy,omitempty"`
+		NoReboot    bool     `json:"noReboot,omitempty"`
 	} `json:"native,omitempty"`
 	Repo struct {
 		Root      string `json:"root,omitempty"`
@@ -412,6 +414,10 @@ func (a App) checkpointFork(ctx context.Context, args []string) (err error) {
 	if err := parseInterspersedFlags(fs, args); err != nil {
 		return err
 	}
+	requestedSlug, err := requestedLeaseSlug(*leaseFlags.Slug)
+	if err != nil {
+		return err
+	}
 	if fs.NArg() != 1 {
 		return exit(2, "usage: crabbox checkpoint fork <checkpoint-id> [--class <class>]")
 	}
@@ -457,7 +463,7 @@ func (a App) checkpointFork(ctx context.Context, args []string) (err error) {
 	if !ok {
 		return exit(2, "provider=%s does not support checkpoint fork", backend.Spec().Name)
 	}
-	lease, err := sshBackend.Acquire(ctx, AcquireRequest{Repo: repo, Options: leaseOptionsFromConfig(cfg), Keep: *keep, Reclaim: *reclaim})
+	lease, err := sshBackend.Acquire(ctx, AcquireRequest{Repo: repo, Options: leaseOptionsFromConfig(cfg), Keep: *keep, Reclaim: *reclaim, RequestedSlug: requestedSlug})
 	if err != nil {
 		return err
 	}
@@ -533,6 +539,27 @@ func deleteCheckpoint(ctx context.Context, store checkpointStore, id string, loc
 	}
 	providerID := nativeCheckpointDeleteID(record)
 	if isNativeCheckpointKind(record.Kind) && providerID != "" && !localOnly {
+		if cfg, ok := directAWSCheckpointConfig(record); ok {
+			client, err := newAWSClient(ctx, cfg)
+			if err != nil {
+				return err
+			}
+			if err := client.GuardAccount(ctx, record.Native.AccountID); err != nil {
+				return err
+			}
+			if len(record.Native.SnapshotIDs) == 0 {
+				if image, err := client.GetImageCheckpoint(ctx, providerID); err == nil && len(image.SnapshotIDs) > 0 {
+					record.Native.SnapshotIDs = image.SnapshotIDs
+					if writeErr := store.Write(record); writeErr != nil {
+						return writeErr
+					}
+				}
+			}
+			if err := client.DeleteImageCheckpoint(ctx, providerID, record.Native.SnapshotIDs, record.Native.AccountID); err != nil {
+				return err
+			}
+			return store.Delete(id)
+		}
 		coord, err := configuredAdminCoordinator()
 		if err != nil {
 			return err
@@ -690,6 +717,9 @@ func (a App) verifyCheckpointRecord(ctx context.Context, store checkpointStore, 
 			audit.NextAction = "delete_local"
 			return audit, nil
 		}
+		if cfg, ok := directAWSCheckpointConfig(record); ok {
+			return verifyDirectAWSCheckpoint(ctx, audit, cfg, providerID, record.Native.AccountID), nil
+		}
 		coord, err := configuredAdminCoordinator()
 		if err != nil {
 			audit.ProviderState = "unknown"
@@ -709,15 +739,7 @@ func (a App) verifyCheckpointRecord(ctx context.Context, store checkpointStore, 
 			audit.Error = err.Error()
 			return audit, nil
 		}
-		audit.ProviderState = blank(image.State, "unknown")
-		switch strings.ToLower(image.State) {
-		case "available", "ready", "succeeded", "completed":
-			audit.NextAction = "fork_or_delete"
-		case "failed", "invalid":
-			audit.NextAction = "delete"
-		default:
-			audit.NextAction = "wait_or_delete"
-		}
+		applyCheckpointImageAudit(&audit, image)
 		return audit, nil
 	default:
 		audit.LocalState = "metadata_only"
@@ -735,72 +757,6 @@ func checkpointArchivePath(paths checkpointPaths, record checkpointRecord) strin
 		return record.ArchivePath
 	}
 	return filepath.Join(paths.Dir, record.ArchivePath)
-}
-
-func coordinatorStatusCode(err error) int {
-	var httpErr CoordinatorHTTPError
-	if errors.As(err, &httpErr) {
-		return httpErr.StatusCode
-	}
-	return 0
-}
-
-func applyNativeImageCheckpointRecord(record *checkpointRecord, image CoordinatorImage, noReboot bool) {
-	record.Kind = checkpointKindForProviderImage(image)
-	record.Native.Provider = firstNonBlank(image.Provider, checkpointProviderForKind(record.Kind), record.Provider)
-	record.Native.ImageID = image.ID
-	record.Native.Kind = image.Kind
-	record.Native.Name = image.Name
-	record.Native.State = image.State
-	record.Native.Region = image.Region
-	record.Native.Project = image.Project
-	record.Native.Resource = image.ResourceID
-	record.Native.Strategy = checkpointStrategyForKind(record.Kind)
-	record.Native.NoReboot = noReboot
-}
-
-func applyAWSAMIImageCheckpointRecord(record *checkpointRecord, image CoordinatorImage, noReboot bool) {
-	applyNativeImageCheckpointRecord(record, image, noReboot)
-}
-
-func nativeCheckpointResourceID(record checkpointRecord) string {
-	switch record.Kind {
-	case checkpointKindAzure, checkpointKindAzureOS, checkpointKindGCP, checkpointKindGCPDisk:
-		return firstNonBlank(record.Native.Resource, record.Native.ImageID)
-	default:
-		return record.Native.ImageID
-	}
-}
-
-func nativeCheckpointDeleteID(record checkpointRecord) string {
-	if imageID := strings.TrimSpace(record.Native.ImageID); imageID != "" {
-		return imageID
-	}
-	switch record.Kind {
-	case checkpointKindAzure, checkpointKindAzureOS, checkpointKindGCP, checkpointKindGCPDisk:
-		return strings.TrimSpace(record.Native.Resource)
-	default:
-		return ""
-	}
-}
-
-func checkpointKindForProviderImage(image CoordinatorImage) string {
-	switch image.Kind {
-	case checkpointKindAWSEBS:
-		return checkpointKindAWSEBS
-	case checkpointKindAzureOS:
-		return checkpointKindAzureOS
-	case checkpointKindGCPDisk:
-		return checkpointKindGCPDisk
-	}
-	switch image.Provider {
-	case "azure":
-		return checkpointKindAzure
-	case "gcp":
-		return checkpointKindGCP
-	default:
-		return checkpointKindAWSAMI
-	}
 }
 
 func newCheckpointRecord(repo Repo, cfg Config, server Server, target SSHTarget, leaseID, workdir, name string) (checkpointRecord, string, error) {
@@ -860,19 +816,38 @@ func checkpointCreateMode(mode, strategy string, cfg Config, server Server, targ
 		if kind, ok := nativeCheckpointKind(cfg, server, target, normalizedStrategy); ok {
 			return kind
 		}
+		if !isAutoCheckpointStrategy(strategy) {
+			if kind, ok := directAWSNativeCheckpointKind(cfg, server, target, normalizedStrategy); ok {
+				return kind
+			}
+		}
 		return checkpointKindArchive
 	case "native", "provider-native", "vm":
 		if kind, ok := nativeCheckpointKind(cfg, server, target, normalizedStrategy); ok {
 			return kind
+		}
+		if kind, ok := directAWSNativeCheckpointKind(cfg, server, target, normalizedStrategy); ok {
+			return kind
+		}
+		if isAutoCheckpointStrategy(strategy) {
+			if kind, ok := directAWSNativeCheckpointKind(cfg, server, target, checkpointStrategyImage); ok {
+				return kind
+			}
 		}
 		return "unsupported"
 	case "ami", "image":
 		if kind, ok := nativeCheckpointKind(cfg, server, target, checkpointStrategyImage); ok {
 			return kind
 		}
+		if kind, ok := directAWSNativeCheckpointKind(cfg, server, target, checkpointStrategyImage); ok {
+			return kind
+		}
 		return "unsupported"
 	case "snapshot", "disk-snapshot", "disk":
 		if kind, ok := nativeCheckpointKind(cfg, server, target, checkpointStrategyDiskSnapshot); ok {
+			return kind
+		}
+		if kind, ok := directAWSNativeCheckpointKind(cfg, server, target, checkpointStrategyDiskSnapshot); ok {
 			return kind
 		}
 		return "unsupported"
@@ -885,39 +860,12 @@ func checkpointCreateMode(mode, strategy string, cfg Config, server Server, targ
 	}
 }
 
-func nativeCheckpointKind(cfg Config, server Server, target SSHTarget, strategy string) (string, bool) {
-	if cfg.Coordinator == "" || server.CloudID == "" || isWindowsNativeTarget(target) {
-		return "", false
-	}
-	targetOS := firstNonBlank(target.TargetOS, cfg.TargetOS)
-	strategy = normalizeCheckpointStrategy(strategy)
-	switch server.Provider {
-	case "aws":
-		if targetOS != targetLinux && targetOS != targetMacOS {
-			return "", false
-		}
-		if strategy == checkpointStrategyImage {
-			return checkpointKindAWSAMI, true
-		}
-		return checkpointKindAWSEBS, true
-	case "azure":
-		if targetOS != targetLinux {
-			return "", false
-		}
-		if strategy == checkpointStrategyImage {
-			return checkpointKindAzure, true
-		}
-		return checkpointKindAzureOS, true
-	case "gcp":
-		if targetOS != targetLinux {
-			return "", false
-		}
-		if strategy == checkpointStrategyImage {
-			return checkpointKindGCP, true
-		}
-		return checkpointKindGCPDisk, true
+func isAutoCheckpointStrategy(strategy string) bool {
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case "", checkpointStrategyAuto:
+		return true
 	default:
-		return "", false
+		return false
 	}
 }
 
@@ -943,80 +891,6 @@ func validCheckpointStrategy(strategy string) bool {
 	}
 }
 
-func checkpointStrategyForKind(kind string) string {
-	switch kind {
-	case checkpointKindAWSAMI, checkpointKindAzure, checkpointKindGCP:
-		return checkpointStrategyImage
-	case checkpointKindAWSEBS, checkpointKindAzureOS, checkpointKindGCPDisk:
-		return checkpointStrategyDiskSnapshot
-	default:
-		return ""
-	}
-}
-
-func (a App) createNativeCheckpoint(ctx context.Context, cfg Config, server Server, target SSHTarget, leaseID, name, repoName, strategy string, noReboot, wait bool, waitTimeout time.Duration) (CoordinatorImage, error) {
-	if cfg.Coordinator == "" {
-		return CoordinatorImage{}, exit(2, "native checkpoints require a configured coordinator")
-	}
-	strategy = normalizeCheckpointStrategy(strategy)
-	if _, ok := nativeCheckpointKind(cfg, server, target, strategy); !ok {
-		return CoordinatorImage{}, exit(2, "native checkpoints support brokered AWS Linux/macOS leases and brokered Azure/GCP Linux leases only")
-	}
-	if server.Provider == "azure" && strategy == checkpointStrategyImage {
-		return CoordinatorImage{}, exit(2, "Azure managed images require a stopped/generalized source VM; use --strategy disk-snapshot for active Azure leases")
-	}
-	if name == "" {
-		name = defaultNativeImageName(leaseID, repoName)
-	}
-	coord, err := configuredAdminCoordinator()
-	if err != nil {
-		return CoordinatorImage{}, err
-	}
-	if err := prepareNativeImageSource(ctx, target); err != nil {
-		return CoordinatorImage{}, err
-	}
-	image, err := coord.CreateImage(ctx, leaseID, name, noReboot, strategy)
-	if err != nil {
-		return CoordinatorImage{}, err
-	}
-	if wait {
-		waited, err := waitForImage(ctx, coord, image.ID, imageRefFromCoordinatorImage(image), waitTimeout, a.Stderr)
-		if err != nil {
-			return image, err
-		}
-		return waited, nil
-	}
-	return image, nil
-}
-
-func (a App) createAWSAMICheckpoint(ctx context.Context, cfg Config, target SSHTarget, leaseID, name, repoName string, noReboot, wait bool, waitTimeout time.Duration) (CoordinatorImage, error) {
-	return a.createNativeCheckpoint(ctx, cfg, Server{Provider: "aws", CloudID: leaseID}, target, leaseID, name, repoName, checkpointStrategyImage, noReboot, wait, waitTimeout)
-}
-
-func defaultNativeImageName(leaseID, repoName string) string {
-	repoName = strings.TrimSpace(repoName)
-	if repoName == "" {
-		repoName = "workspace"
-	}
-	base := "crabbox-" + safeCaptureName(repoName) + "-" + strings.ReplaceAll(leaseID, "_", "-") + "-" + time.Now().UTC().Format("20060102-150405")
-	if len(base) > 128 {
-		return base[:128]
-	}
-	return base
-}
-
-func prepareNativeImageSource(ctx context.Context, target SSHTarget) error {
-	command := remotePrepareNativeImageCommand()
-	if out, err := runSSHCombinedOutput(ctx, target, "bash -lc "+shellQuote(command)); err != nil {
-		return exit(7, "prepare native checkpoint source: %v: %s", err, trimFailureDetail(out))
-	}
-	return nil
-}
-
-func remotePrepareNativeImageCommand() string {
-	return "if command -v cloud-init >/dev/null 2>&1; then sudo cloud-init clean --logs; fi; sync"
-}
-
 func defaultCheckpointRestoreWorkdir(cfg Config, leaseID, repoName, savedWorkdir string) string {
 	return firstNonBlank(remoteJoin(cfg, leaseID, repoName), savedWorkdir)
 }
@@ -1027,96 +901,6 @@ func nativeCheckpointForkWorkdir(cfg Config, leaseID, repoName, override string)
 		return override
 	}
 	return remoteJoin(cfg, leaseID, repoName)
-}
-
-func applyNativeCheckpointForkConfig(cfg *Config, fs *flag.FlagSet, record checkpointRecord) error {
-	cfg.Provider = firstNonBlank(record.Native.Provider, checkpointProviderForKind(record.Kind), record.Provider)
-	if cfg.CoordAdminToken != "" {
-		cfg.CoordToken = cfg.CoordAdminToken
-	}
-	switch record.Kind {
-	case checkpointKindAWSAMI:
-		cfg.AWSAMI = record.Native.ImageID
-		if record.Native.Region != "" {
-			cfg.AWSRegion = record.Native.Region
-		}
-	case checkpointKindAWSEBS:
-		cfg.AWSSnapshot = record.Native.ImageID
-		if record.Native.Region != "" {
-			cfg.AWSRegion = record.Native.Region
-		}
-	case checkpointKindAzure:
-		cfg.AzureImage = firstNonBlank(record.Native.Resource, record.Native.ImageID)
-		if record.Native.Region != "" {
-			cfg.AzureLocation = record.Native.Region
-		}
-	case checkpointKindAzureOS:
-		cfg.AzureSnapshot = firstNonBlank(record.Native.Resource, record.Native.ImageID)
-		if record.Native.Region != "" {
-			cfg.AzureLocation = record.Native.Region
-		}
-	case checkpointKindGCP:
-		cfg.GCPMachineImage = firstNonBlank(record.Native.Resource, record.Native.ImageID)
-		if record.Native.Region != "" {
-			cfg.GCPZone = record.Native.Region
-		}
-		if record.Native.Project != "" {
-			cfg.GCPProject = record.Native.Project
-			cfg.gcpProjectExplicit = true
-		}
-	case checkpointKindGCPDisk:
-		cfg.GCPSnapshot = firstNonBlank(record.Native.Resource, record.Native.ImageID)
-		if record.Native.Region != "" {
-			cfg.GCPZone = record.Native.Region
-		}
-		if record.Native.Project != "" {
-			cfg.GCPProject = record.Native.Project
-			cfg.gcpProjectExplicit = true
-		}
-	}
-	if record.TargetOS != "" {
-		cfg.TargetOS = record.TargetOS
-	}
-	if record.WindowsMode != "" {
-		cfg.WindowsMode = record.WindowsMode
-	}
-	if cfg.Provider == "aws" && cfg.TargetOS == targetMacOS {
-		if !flagWasSet(fs, "market") {
-			cfg.Capacity.Market = "on-demand"
-		}
-		normalizeTargetConfig(cfg)
-	}
-	if cfg.Provider == "azure" && flagWasSet(fs, "azure-os-disk") {
-		mode, err := NormalizeAzureOSDiskMode(fs.Lookup("azure-os-disk").Value.String())
-		if err != nil {
-			return err
-		}
-		cfg.AzureOSDisk = mode
-		cfg.AzureOSDiskExplicit = true
-	}
-	if !flagWasSet(fs, "type") {
-		if record.ServerType != "" && !flagWasSet(fs, "class") {
-			cfg.ServerType = record.ServerType
-			cfg.ServerTypeExplicit = true
-		} else {
-			cfg.ServerTypeExplicit = false
-			cfg.ServerType = serverTypeForConfig(*cfg)
-		}
-	}
-	return nil
-}
-
-func applyAWSAMICheckpointForkConfig(cfg *Config, fs *flag.FlagSet, record checkpointRecord) error {
-	return applyNativeCheckpointForkConfig(cfg, fs, record)
-}
-
-func nativeCoordinatorImageRef(record checkpointRecord) CoordinatorImageRef {
-	return CoordinatorImageRef{
-		Provider: firstNonBlank(record.Native.Provider, checkpointProviderForKind(record.Kind), record.Provider),
-		Region:   record.Native.Region,
-		Project:  record.Native.Project,
-		Kind:     firstNonBlank(record.Native.Kind, record.Kind),
-	}
 }
 
 func isNativeCheckpointKind(kind string) bool {

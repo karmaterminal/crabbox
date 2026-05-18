@@ -74,6 +74,10 @@ func normalizeLeaseSlug(value string) string {
 	return core.NormalizeLeaseSlug(value)
 }
 
+func allocateClaimLeaseSlug(leaseID, requested string) (string, error) {
+	return core.AllocateClaimLeaseSlug(leaseID, requested)
+}
+
 func blank(value, fallback string) string {
 	return core.Blank(value, fallback)
 }

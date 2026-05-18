@@ -66,7 +66,7 @@ func (b *blacksmithBackend) Warmup(ctx context.Context, req WarmupRequest) error
 		return exit(2, "--actions-runner is not supported for provider=%s; Blacksmith owns runner hydration", b.cfg.Provider)
 	}
 	started := b.rt.Clock.Now()
-	leaseID, slug, err := b.warmupLease(ctx, req.Repo, req.Reclaim)
+	leaseID, slug, err := b.warmupLease(ctx, req.Repo, req.Reclaim, req.RequestedSlug)
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ func (b *blacksmithBackend) Run(ctx context.Context, req RunRequest) (RunResult,
 	acquired := false
 	var err error
 	if leaseID == "" {
-		leaseID, slug, err = b.warmupLease(ctx, req.Repo, req.Reclaim)
+		leaseID, slug, err = b.warmupLease(ctx, req.Repo, req.Reclaim, req.RequestedSlug)
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -162,6 +162,7 @@ func (b *blacksmithBackend) Run(ctx context.Context, req RunRequest) (RunResult,
 	total := finished.Sub(started)
 	fmt.Fprintf(b.rt.Stderr, "blacksmith run summary sync=delegated command=%s total=%s exit=%d\n", commandDuration.Round(time.Millisecond), total.Round(time.Millisecond), code)
 	report := delegatedTimingReport(blacksmithTestboxProvider, leaseID, slug, "blacksmith-testbox owns sync", commandDuration, commandPhases, total, code)
+	report.Label = strings.TrimSpace(req.Label)
 	if req.TimingJSON {
 		if err := writeTimingJSON(b.rt.Stderr, report); err != nil {
 			return RunResult{}, err
@@ -271,7 +272,7 @@ func (b *blacksmithBackend) Stop(ctx context.Context, req StopRequest) error {
 	return nil
 }
 
-func (b *blacksmithBackend) warmupLease(ctx context.Context, repo Repo, reclaim bool) (string, string, error) {
+func (b *blacksmithBackend) warmupLease(ctx context.Context, repo Repo, reclaim bool, requestedSlug string) (string, string, error) {
 	pendingID := "tbx_pending_" + strings.TrimPrefix(newLeaseID(), "cbx_")
 	cleanupKeyID := pendingID
 	defer func() {
@@ -303,7 +304,11 @@ func (b *blacksmithBackend) warmupLease(ctx context.Context, repo Repo, reclaim 
 		return "", "", exit(2, "store blacksmith key for %s: %v", leaseID, err)
 	}
 	cleanupKeyID = leaseID
-	slug := newLeaseSlug(leaseID)
+	slug, err := allocateClaimLeaseSlug(leaseID, requestedSlug)
+	if err != nil {
+		_ = b.Stop(ctx, StopRequest{ID: leaseID})
+		return "", "", err
+	}
 	if err := claimLeaseForRepoProvider(leaseID, slug, blacksmithTestboxProvider, repo.Root, blacksmithIdleTimeout(b.cfg), reclaim); err != nil {
 		_ = b.Stop(ctx, StopRequest{ID: leaseID})
 		return "", "", err
@@ -630,6 +635,14 @@ func newLeaseID() string {
 
 func newLeaseSlug(leaseID string) string {
 	return core.NewLeaseSlug(leaseID)
+}
+
+func normalizeLeaseSlug(value string) string {
+	return core.NormalizeLeaseSlug(value)
+}
+
+func allocateClaimLeaseSlug(leaseID, requested string) (string, error) {
+	return core.AllocateClaimLeaseSlug(leaseID, requested)
 }
 
 func claimLeaseForRepoProvider(leaseID, slug, provider, repoRoot string, idleTimeout time.Duration, reclaim bool) error {

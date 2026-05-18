@@ -43,11 +43,11 @@ func NewLeaseBackend(spec ProviderSpec, cfg Config, rt Runtime) Backend {
 
 func (b *leaseBackend) Acquire(ctx context.Context, req AcquireRequest) (LeaseTarget, error) {
 	return shared.AcquireAttemptsRetry(b.RT, req.Keep, func() (LeaseTarget, error) {
-		return b.acquireOnce(ctx, req.Keep)
+		return b.acquireOnce(ctx, req.Keep, req.RequestedSlug)
 	})
 }
 
-func (b *leaseBackend) acquireOnce(ctx context.Context, keep bool) (LeaseTarget, error) {
+func (b *leaseBackend) acquireOnce(ctx context.Context, keep bool, requestedSlug string) (LeaseTarget, error) {
 	client, err := newClient(b.Cfg)
 	if err != nil {
 		return LeaseTarget{}, err
@@ -57,7 +57,10 @@ func (b *leaseBackend) acquireOnce(ctx context.Context, keep bool) (LeaseTarget,
 	if err != nil {
 		return LeaseTarget{}, err
 	}
-	slug := allocateDirectLeaseSlug(leaseID, servers)
+	slug, err := allocateDirectLeaseSlug(leaseID, requestedSlug, servers)
+	if err != nil {
+		return LeaseTarget{}, err
+	}
 	cfg := b.Cfg
 	keyPath, publicKey, err := ensureTestboxKeyForConfig(cfg, leaseID)
 	if err != nil {
@@ -201,8 +204,8 @@ func (b *leaseBackend) Cleanup(ctx context.Context, req CleanupRequest) error {
 
 func newClient(cfg Config) (*core.ProxmoxClient, error) { return core.NewProxmoxClient(cfg) }
 func newLeaseID() string                                { return core.NewLeaseID() }
-func allocateDirectLeaseSlug(id string, servers []Server) string {
-	return core.AllocateDirectLeaseSlug(id, servers)
+func allocateDirectLeaseSlug(id, requested string, servers []Server) (string, error) {
+	return core.AllocateDirectLeaseSlug(id, requested, servers)
 }
 func ensureTestboxKeyForConfig(cfg Config, leaseID string) (string, string, error) {
 	return core.EnsureTestboxKeyForConfig(cfg, leaseID)

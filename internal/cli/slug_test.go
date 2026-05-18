@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewLeaseSlugDeterministic(t *testing.T) {
@@ -54,14 +57,104 @@ func TestSlugWithCollisionSuffix(t *testing.T) {
 func TestAllocateDirectLeaseSlugAddsSuffixOnCollision(t *testing.T) {
 	leaseID := "cbx_000000000001"
 	base := newLeaseSlug(leaseID)
-	got := allocateDirectLeaseSlug(leaseID, []Server{
+	got, err := allocateDirectLeaseSlug(leaseID, "", []Server{
 		{Labels: map[string]string{"lease": "cbx_000000000000", "slug": base}},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got == base {
 		t.Fatalf("slug collision was not repaired: %q", got)
 	}
 	if !strings.HasPrefix(got, base+"-") {
 		t.Fatalf("collision slug=%q want %q suffix", got, base)
+	}
+}
+
+func TestRequestedLeaseSlugNormalizesAndValidates(t *testing.T) {
+	got, err := requestedLeaseSlug(" Update Flow Smoke ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "update-flow-smoke" {
+		t.Fatalf("slug=%q", got)
+	}
+	if _, err := requestedLeaseSlug("!!!"); err == nil {
+		t.Fatal("expected empty normalized slug error")
+	}
+}
+
+func TestAllocateDirectLeaseSlugUsesRequestedSlug(t *testing.T) {
+	got, err := allocateDirectLeaseSlug("cbx_000000000001", "Update Flow Smoke", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "update-flow-smoke" {
+		t.Fatalf("slug=%q", got)
+	}
+	got, err = allocateDirectLeaseSlug("cbx_000000000001", "Update Flow Smoke", []Server{
+		{Labels: map[string]string{"lease": "cbx_000000000000", "slug": "update-flow-smoke"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "update-flow-smoke-") {
+		t.Fatalf("collision slug=%q", got)
+	}
+}
+
+func TestAllocateDirectLeaseSlugAvoidsLocalClaimCollisionForRequestedSlug(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if err := claimLeaseForRepoProvider("cbx_000000000000", "update-flow-smoke", "cloudflare", "/repo-a", time.Minute, false); err != nil {
+		t.Fatal(err)
+	}
+	got, err := allocateDirectLeaseSlug("cbx_000000000001", "Update Flow Smoke", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == "update-flow-smoke" {
+		t.Fatalf("claim collision was not repaired: %q", got)
+	}
+	if !strings.HasPrefix(got, "update-flow-smoke-") {
+		t.Fatalf("collision slug=%q want update-flow-smoke suffix", got)
+	}
+}
+
+func TestAllocateClaimLeaseSlugAvoidsLocalClaimCollision(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if err := claimLeaseForRepoProvider("cbx_000000000000", "update-flow-smoke", "cloudflare", "/repo-a", time.Minute, false); err != nil {
+		t.Fatal(err)
+	}
+	got, err := allocateClaimLeaseSlug("cbx_000000000001", "Update Flow Smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == "update-flow-smoke" {
+		t.Fatalf("claim collision was not repaired: %q", got)
+	}
+	if !strings.HasPrefix(got, "update-flow-smoke-") {
+		t.Fatalf("collision slug=%q want update-flow-smoke suffix", got)
+	}
+}
+
+func TestAllocateClaimLeaseSlugSkipsClaimScanForGeneratedSlug(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	path, err := leaseClaimPath("cbx_badbadbadbad")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := allocateClaimLeaseSlug("cbx_000000000001", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != newLeaseSlug("cbx_000000000001") {
+		t.Fatalf("slug=%q", got)
 	}
 }
 

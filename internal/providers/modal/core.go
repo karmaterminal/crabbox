@@ -60,6 +60,10 @@ func normalizeLeaseSlug(value string) string {
 	return core.NormalizeLeaseSlug(value)
 }
 
+func allocateClaimLeaseSlug(leaseID, requested string) (string, error) {
+	return core.AllocateClaimLeaseSlug(leaseID, requested)
+}
+
 func directLeaseLabels(cfg Config, leaseID, slug, provider, market string, keep bool, now time.Time) map[string]string {
 	return core.DirectLeaseLabels(cfg, leaseID, slug, provider, market, keep, now)
 }

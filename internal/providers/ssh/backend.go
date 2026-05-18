@@ -33,7 +33,11 @@ func NewStaticSSHLeaseBackend(spec ProviderSpec, cfg Config, rt Runtime) Backend
 }
 
 func (b *staticLeaseBackend) Acquire(ctx context.Context, req AcquireRequest) (LeaseTarget, error) {
-	server, target, leaseID, err := staticLease(b.Cfg)
+	cfg := b.Cfg
+	if req.RequestedSlug != "" {
+		cfg.Static.Name = req.RequestedSlug
+	}
+	server, target, leaseID, err := staticLease(cfg)
 	if err != nil {
 		return LeaseTarget{}, err
 	}

@@ -13,6 +13,7 @@ type leaseCreateFlagValues struct {
 	Class         *string
 	ServerType    *string
 	Market        *string
+	Slug          *string
 	TTL           *time.Duration
 	Idle          *time.Duration
 	Desktop       *bool
@@ -30,6 +31,7 @@ func registerLeaseCreateFlags(fs *flag.FlagSet, defaults Config) leaseCreateFlag
 		Class:         fs.String("class", defaults.Class, "machine class"),
 		ServerType:    fs.String("type", getenv("CRABBOX_SERVER_TYPE", ""), "provider server/instance type"),
 		Market:        fs.String("market", defaults.Capacity.Market, "capacity market: spot or on-demand"),
+		Slug:          fs.String("slug", "", "request a friendly slug for a new lease"),
 		TTL:           fs.Duration("ttl", defaults.TTL, "maximum lease lifetime"),
 		Idle:          fs.Duration("idle-timeout", defaults.IdleTimeout, "idle timeout"),
 		Desktop:       fs.Bool("desktop", defaults.Desktop, "provision or require a visible desktop/VNC session"),
@@ -42,6 +44,10 @@ func registerLeaseCreateFlags(fs *flag.FlagSet, defaults Config) leaseCreateFlag
 }
 
 func applyLeaseCreateFlags(cfg *Config, fs *flag.FlagSet, values leaseCreateFlagValues) error {
+	return applyLeaseCreateFlagsForLease(cfg, fs, values, "")
+}
+
+func applyLeaseCreateFlagsForLease(cfg *Config, fs *flag.FlagSet, values leaseCreateFlagValues, existingLeaseID string) error {
 	cfg.Provider = *values.Provider
 	cfg.Profile = *values.Profile
 	cfg.Class = *values.Class
@@ -51,6 +57,9 @@ func applyLeaseCreateFlags(cfg *Config, fs *flag.FlagSet, values leaseCreateFlag
 	}
 	if err := applyNetworkFlagOverrides(cfg, fs, values.Network); err != nil {
 		return err
+	}
+	if existingLeaseID != "" && cfg.Provider == "aws" && cfg.TargetOS == targetMacOS && !flagWasSet(fs, "market") {
+		cfg.Capacity.Market = "on-demand"
 	}
 	if err := applyCapacityMarketFlag(cfg, fs, *values.Market); err != nil {
 		return err

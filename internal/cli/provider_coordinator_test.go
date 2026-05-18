@@ -114,6 +114,52 @@ func TestCoordinatorListJSONFallsBackWhenAdminTokenMissing(t *testing.T) {
 	}
 }
 
+func TestCoordinatorAcquireSendsTailscaleHostnameTemplate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	var gotHostname string
+	var gotSlug string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/leases":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			gotHostname, _ = body["tailscaleHostname"].(string)
+			gotSlug, _ = body["slug"].(string)
+			http.Error(w, `{"error":"stop after request capture"}`, http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := baseConfig()
+	cfg.Provider = "aws"
+	cfg.TargetOS = targetLinux
+	cfg.Coordinator = server.URL
+	cfg.CoordToken = "user-token"
+	cfg.Tailscale.Enabled = true
+	cfg.Tailscale.HostnameTemplate = "lease-{slug}"
+	coord, _, err := newCoordinatorClient(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &coordinatorLeaseBackend{cfg: cfg, coord: coord, rt: Runtime{Stderr: &bytes.Buffer{}}}
+
+	if _, err := backend.acquireOnce(context.Background(), false, "smoke"); err == nil || !strings.Contains(err.Error(), "stop after request capture") {
+		t.Fatalf("err=%v, want captured request error", err)
+	}
+	if gotSlug != "smoke" {
+		t.Fatalf("slug=%q, want requested slug", gotSlug)
+	}
+	if gotHostname != "lease-{slug}" {
+		t.Fatalf("tailscaleHostname=%q, want template for worker-side final slug render", gotHostname)
+	}
+}
+
 func TestLeaseToServerTargetPreservesCoordinatorWorkRoot(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Provider = "aws"
@@ -313,7 +359,7 @@ func TestCoordinatorAcquireReleasesStaleInstanceLease(t *testing.T) {
 	var stderr bytes.Buffer
 	backend := &coordinatorLeaseBackend{cfg: cfg, coord: coord, rt: Runtime{Stderr: &stderr}}
 
-	_, err = backend.acquireOnce(context.Background(), false)
+	_, err = backend.acquireOnce(context.Background(), false, "")
 	if err == nil || !strings.Contains(err.Error(), "InvalidInstanceID.NotFound") {
 		t.Fatalf("err=%v", err)
 	}
@@ -416,7 +462,7 @@ func TestCoordinatorAcquireWrapsWorkerCleanupSignalWithoutRelease(t *testing.T) 
 	var stderr bytes.Buffer
 	backend := &coordinatorLeaseBackend{cfg: cfg, coord: coord, rt: Runtime{Stderr: &stderr}}
 
-	_, err = backend.acquireOnce(context.Background(), false)
+	_, err = backend.acquireOnce(context.Background(), false, "")
 	if err == nil || !strings.Contains(err.Error(), "InvalidInstanceID.NotFound") {
 		t.Fatalf("err=%v", err)
 	}
