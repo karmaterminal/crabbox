@@ -2715,10 +2715,10 @@ function html(
     .theme-toggle { color:var(--muted); }
     .theme-toggle:hover { color:var(--fg); }
     .theme-toggle svg { width:15px; height:15px; display:block; }
-    .theme-icon-moon { display:none; }
-    .theme-icon-sun { display:block; }
-    :root[data-theme="light"] .theme-icon-moon { display:block; }
-    :root[data-theme="light"] .theme-icon-sun { display:none; }
+    .theme-toggle .theme-icon-moon { display:none; }
+    .theme-toggle .theme-icon-sun { display:block; }
+    :root[data-theme="light"] .theme-toggle .theme-icon-moon { display:block; }
+    :root[data-theme="light"] .theme-toggle .theme-icon-sun { display:none; }
     .screen { min-height:0; border:1px solid var(--line); border-radius:8px; background:var(--bg); overflow:hidden; box-shadow:inset 0 0 0 1px rgba(255,255,255,0.02); }
     .screen div { margin:0 auto; }
     .code-wait-screen { display:grid; place-items:center; padding:clamp(18px,5vw,64px); }

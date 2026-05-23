@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- Fixed portal and documentation theme toggles so dark mode shows only the sun icon and light mode shows only the moon icon.
+
 ## 0.17.1 - 2026-05-22
 
 ### Added
