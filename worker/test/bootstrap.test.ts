@@ -105,6 +105,8 @@ describe("cloud-init bootstrap", () => {
     );
     expect(got).toContain('theme" type="string" value="$xfwm_theme');
     expect(got).toContain("gtk-application-prefer-dark-theme=1");
+    expect(got).toContain("$config_dir/gtk-3.0/gtk.css");
+    expect(got).toContain(".xfce4-panel");
     expect(got).toContain('mkdir -p "$config_dir/xfce4/xfconf/xfce-perchannel-xml"');
     expect(got).toContain("xfconf-query -c xsettings -p /Gtk/ApplicationPreferDarkTheme");
     expect(got).toContain("xfconf-query -c xfwm4 -p /general/theme");
@@ -112,6 +114,7 @@ describe("cloud-init bootstrap", () => {
     expect(got).toContain(String.raw`s#^/panels/panel-\([0-9][0-9]*\)/.*#\1#p`);
     expect(got).toContain("background-rgba");
     expect(got).toContain("xfce4-panel -r");
+    expect(got).toContain("xfwm4 --replace");
     expect(got).toContain("gsettings set org.gnome.desktop.interface color-scheme prefer-dark");
     expect(got).toContain(
       "CRABBOX_DESKTOP_USER=crabbox /usr/local/bin/crabbox-configure-desktop-theme",

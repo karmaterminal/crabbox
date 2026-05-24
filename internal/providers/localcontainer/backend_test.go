@@ -350,12 +350,15 @@ func TestBootstrapScriptUsesAccountHomeDirectory(t *testing.T) {
 		`if [ ! -s "$config_dir/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml" ]; then`,
 		`theme" type="string" value="$xfwm_theme"`,
 		`gtk-application-prefer-dark-theme=1`,
+		`"$config_dir/gtk-3.0/gtk.css"`,
+		`.xfce4-panel`,
 		`xfconf-query -c xsettings -p /Gtk/ApplicationPreferDarkTheme`,
 		`xfconf-query -c xfwm4 -p /general/theme`,
 		`xfconf-query -c xfce4-panel -l`,
 		`s#^/panels/panel-\([0-9][0-9]*\)/.*#\1#p`,
 		`background-rgba`,
 		`xfce4-panel -r`,
+		`xfwm4 --replace`,
 		`gsettings set org.gnome.desktop.interface color-scheme prefer-dark`,
 	} {
 		if !strings.Contains(bootstrapScript, want) {

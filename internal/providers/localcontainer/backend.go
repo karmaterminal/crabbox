@@ -1119,6 +1119,18 @@ gtk-theme-name=$gtk_theme
 gtk-icon-theme-name=Adwaita
 gtk-application-prefer-dark-theme=1
 EOF
+  cat > "$config_dir/gtk-3.0/gtk.css" <<'EOF'
+.xfce4-panel,
+.xfce4-panel .background {
+  background-color: #0f1117;
+  color: #e5e7eb;
+}
+.xfce4-panel button,
+.xfce4-panel button.flat {
+  background-color: transparent;
+  color: #e5e7eb;
+}
+EOF
   cat > "$home_dir/.gtkrc-2.0" <<EOF
 gtk-theme-name="$gtk_theme"
 gtk-icon-theme-name="Adwaita"
@@ -1163,6 +1175,7 @@ if command -v xfconf-query >/dev/null 2>&1; then
     su "$user" -s /bin/sh -c "DISPLAY=:99 XDG_RUNTIME_DIR='$runtime' xfconf-query -c xfce4-panel -p /panels/panel-$panel/background-rgba -n -t double -t double -t double -t double -s 0.06 -s 0.07 -s 0.09 -s 1.0 >/dev/null 2>&1 || true"
   done
   su "$user" -s /bin/sh -c "DISPLAY=:99 XDG_RUNTIME_DIR='$runtime' xfce4-panel -r >/dev/null 2>&1 || true"
+  su "$user" -s /bin/sh -c "DISPLAY=:99 XDG_RUNTIME_DIR='$runtime' xfwm4 --replace >/tmp/crabbox-xfwm4-replace.log 2>&1 &"
 fi
 if command -v gsettings >/dev/null 2>&1; then
   su "$user" -s /bin/sh -c "DISPLAY=:99 XDG_RUNTIME_DIR='$runtime' gsettings set org.gnome.desktop.interface color-scheme prefer-dark >/dev/null 2>&1 || true"
