@@ -91,6 +91,9 @@ func (a App) desktopLaunchWithCommand(ctx context.Context, args []string, comman
 	if err != nil {
 		return err
 	}
+	if *browser && target.TargetOS == targetLinux {
+		_, _ = runSSHCombinedOutput(ctx, target, desktopBrowserDarkModeCommand(env["BROWSER"]))
+	}
 	command := fs.Args()
 	if positionalID && len(command) > 0 && command[0] == *id {
 		command = command[1:]
@@ -712,6 +715,29 @@ if command -v pgrep >/dev/null 2>&1 && {
 fi
 echo "browser process not found" >&2
 exit 1`
+}
+
+func desktopBrowserDarkModeCommand(browser string) string {
+	return `set +e
+export DISPLAY="${DISPLAY:-:99}"
+if [ -x /usr/local/bin/crabbox-configure-desktop-theme ]; then
+  CRABBOX_DESKTOP_USER="$(id -un)" /usr/local/bin/crabbox-configure-desktop-theme >/dev/null 2>&1 || true
+fi
+browser_wrapper=` + shellQuote(strings.TrimSpace(browser)) + `
+if [ "$browser_wrapper" = "/usr/local/bin/crabbox-browser" ] && [ -f "$browser_wrapper" ] && {
+  ! grep -q -- "--force-dark-mode" "$browser_wrapper" 2>/dev/null ||
+  ! grep -q -- "--user-data-dir" "$browser_wrapper" 2>/dev/null
+}; then
+  browser_path="$(sed -n 's/^exec "\([^"]*\)".*/\1/p' "$browser_wrapper" | head -1)"
+  if [ -n "$browser_path" ] && "$browser_path" --version 2>/dev/null | grep -Eiq 'chrome|chromium'; then
+    tmp="$(mktemp)"
+    printf '%s\n' '#!/bin/sh' 'profile="${CRABBOX_BROWSER_PROFILE:-$HOME/.cache/crabbox/browser-profile}"' 'umask 077' 'mkdir -p "$profile"' 'chmod 700 "$profile"' "exec \"$browser_path\" --no-first-run --no-default-browser-check --disable-default-apps --force-dark-mode --enable-features=WebUIDarkMode --blink-settings=preferredColorScheme=2 --user-data-dir=\"\$profile\" --window-size=1500,900 --window-position=80,80 \"\$@\"" > "$tmp"
+    chmod 0755 "$tmp"
+    sudo install -m 0755 "$tmp" "$browser_wrapper" >/dev/null 2>&1 || install -m 0755 "$tmp" "$browser_wrapper" >/dev/null 2>&1 || true
+    rm -f "$tmp"
+  fi
+fi
+exit 0`
 }
 
 func desktopCommandLooksLikeBrowser(command []string, browserEnv string) bool {

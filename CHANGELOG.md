@@ -2,6 +2,10 @@
 
 ## 0.18.1 - Unreleased
 
+### Fixed
+
+- Fixed desktop browser launches so Linux WebVNC browser sessions inherit the dark desktop theme, advertise dark color-scheme preference to web apps, and repair older managed browser wrappers before launch.
+
 ## 0.18.0 - 2026-05-23
 
 ### Added

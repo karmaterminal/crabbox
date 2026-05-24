@@ -156,6 +156,9 @@ describe("cloud-init bootstrap", () => {
     expect(got).not.toContain("<<'EOF'");
     expect(got).not.toContain("<<EOF");
     expect(got).not.toContain("\nEOF");
+    expect(got).not.toContain("--force-dark-mode");
+    expect(got).not.toContain("preferredColorScheme=2");
+    expect(got).not.toContain("--user-data-dir");
   });
 
   it("adds code-server setup only when requested", () => {

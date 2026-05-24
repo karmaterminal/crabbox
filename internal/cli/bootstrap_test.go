@@ -116,7 +116,7 @@ func TestCloudInitDesktopProfile(t *testing.T) {
 	}
 }
 
-func TestCloudInitBrowserProfile(t *testing.T) {
+func TestCloudInitBrowserWrapper(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Browser = true
 	got := cloudInit(cfg, "ssh-ed25519 test")
@@ -130,7 +130,7 @@ func TestCloudInitBrowserProfile(t *testing.T) {
 		"apt-cache show chromium-browser",
 		"/etc/opt/chrome/policies/managed/crabbox.json",
 		"/usr/local/bin/crabbox-browser",
-		"--no-first-run --no-default-browser-check --disable-default-apps --window-size=1500,900 --window-position=80,80",
+		`--no-first-run --no-default-browser-check --disable-default-apps --window-size=1500,900 --window-position=80,80`,
 		"/var/lib/crabbox/browser.env",
 		"test -x \"$BROWSER\"",
 		"\"$BROWSER\" --version >/dev/null",
@@ -145,6 +145,9 @@ func TestCloudInitBrowserProfile(t *testing.T) {
 		"<<'EOF'",
 		"<<EOF",
 		"\nEOF",
+		"--force-dark-mode",
+		"preferredColorScheme=2",
+		"--user-data-dir",
 	} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("cloudInit(browser) contains browser heredoc content %q", notWant)

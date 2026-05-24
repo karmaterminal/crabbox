@@ -31,6 +31,25 @@ func TestDesktopLaunchRemoteCommandUsesDetachedPOSIXSession(t *testing.T) {
 	}
 }
 
+func TestDesktopBrowserDarkModeCommandPatchesManagedChromiumWrapper(t *testing.T) {
+	got := desktopBrowserDarkModeCommand("/usr/local/bin/crabbox-browser")
+	for _, want := range []string{
+		"/usr/local/bin/crabbox-configure-desktop-theme",
+		`[ "$browser_wrapper" = "/usr/local/bin/crabbox-browser" ]`,
+		"grep -q -- \"--force-dark-mode\"",
+		"grep -q -- \"--user-data-dir\"",
+		"umask 077",
+		`chmod 700 "$profile"`,
+		"--force-dark-mode --enable-features=WebUIDarkMode --blink-settings=preferredColorScheme=2",
+		`--user-data-dir=\"\$profile\"`,
+		"sudo install -m 0755",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("dark mode command missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestDesktopTypeUsesPasteForSymbolHeavyText(t *testing.T) {
 	for _, text := range []string{"peter@example.com", "token+secret", "line one\nline two", "https://example.com"} {
 		if !desktopShouldPasteForType(text) {
