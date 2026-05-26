@@ -96,7 +96,7 @@ func (a App) webvnc(ctx context.Context, args []string) error {
 		return err
 	}
 	if !useCoordinator || coord == nil || coord.Token == "" {
-		return exit(2, "webvnc requires a configured coordinator login; run crabbox login first")
+		return exit(2, "webvnc requires a configured coordinator login; run crabbox login --url <broker-url> first")
 	}
 	server, target, leaseID, err := a.resolveNetworkLeaseTarget(ctx, cfg, *id, false)
 	if err != nil {
@@ -433,7 +433,7 @@ func (a App) webVNCStatusCommand(ctx context.Context, args []string) error {
 		return err
 	}
 	if !useCoordinator || coord == nil || coord.Token == "" {
-		return exit(2, "webvnc status requires a configured coordinator login; run crabbox login first")
+		return exit(2, "webvnc status requires a configured coordinator login; run crabbox login --url <broker-url> first")
 	}
 	server, target, leaseID, err := a.resolveNetworkLeaseTarget(ctx, cfg, *id, false)
 	if err != nil {
@@ -548,7 +548,7 @@ func (a App) webVNCResetCommand(ctx context.Context, args []string) error {
 		return err
 	}
 	if !useCoordinator || coord == nil || coord.Token == "" {
-		return exit(2, "webvnc reset requires a configured coordinator login; run crabbox login first")
+		return exit(2, "webvnc reset requires a configured coordinator login; run crabbox login --url <broker-url> first")
 	}
 	server, target, leaseID, err := a.resolveNetworkLeaseTarget(ctx, cfg, *id, false)
 	if err != nil {

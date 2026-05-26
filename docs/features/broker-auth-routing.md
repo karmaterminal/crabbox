@@ -9,19 +9,19 @@ Read when:
 The broker is exposed through Cloudflare Workers routes:
 
 ```text
-https://crabbox.openclaw.ai
-https://crabbox-access.openclaw.ai
-https://crabbox-coordinator.services-91b.workers.dev
-crabbox.clawd.bot/*
+https://broker.example.com
+https://broker-access.example.com
+https://crabbox-coordinator.example.workers.dev
+fallback.example.com/*
 ```
 
 ## Route Model
 
-`https://crabbox.openclaw.ai` is the normal coordinator route. It is public at
+`https://broker.example.com` is the normal coordinator route. It is public at
 the Cloudflare edge so `crabbox login` can complete a browser-based GitHub
 OAuth flow. The Worker still requires Crabbox auth for every non-health route.
 
-`https://crabbox-access.openclaw.ai` is the same Worker behind a Cloudflare
+`https://broker-access.example.com` is the same Worker behind a Cloudflare
 Access application. It exists for automation and proof that Crabbox works when
 an operator wants an outer Cloudflare gate in front of the coordinator. Requests
 to this route must pass two checks:
@@ -36,14 +36,14 @@ the HTTP request through Cloudflare Access. The Worker still decides what the
 caller can do.
 
 The current Access app is `Crabbox Coordinator Service Token` on
-`crabbox-access.openclaw.ai`. Its policy is `non_identity` service-token auth,
+`broker-access.example.com`. Its policy is `non_identity` service-token auth,
 scoped to the local Crabbox CLI service token rather than any token in the
 account.
 
-Normal users run `crabbox login`, which opens GitHub and stores a signed Crabbox user token. The coordinator needs a GitHub OAuth app with callback:
+Normal users run `crabbox login --url <broker-url>` for first login, which opens GitHub and stores a signed Crabbox user token. The coordinator needs a GitHub OAuth app with callback:
 
 ```text
-https://crabbox.openclaw.ai/v1/auth/github/callback
+https://broker.example.com/v1/auth/github/callback
 ```
 
 Self-hosted coordinators need their own GitHub OAuth app. The callback URL on
@@ -65,7 +65,7 @@ CRABBOX_SESSION_SECRET
 GitHub browser login requires active membership in the allowed GitHub org before
 the coordinator mints a Crabbox user token. Set `CRABBOX_GITHUB_ALLOWED_ORG` or
 comma-separated `CRABBOX_GITHUB_ALLOWED_ORGS`; if unset, the Worker falls back
-to `CRABBOX_DEFAULT_ORG`, then `openclaw`. The OAuth app must request
+to `CRABBOX_DEFAULT_ORG`, then rejects login if no allowed org is configured. The OAuth app must request
 `read:user user:email read:org`.
 
 Set comma-separated `CRABBOX_GITHUB_ALLOWED_TEAMS` to require membership in at
@@ -92,13 +92,13 @@ signed Crabbox user token. When `CRABBOX_ACCESS_TEAM_DOMAIN` and
 `Cf-Access-Jwt-Assertion` against Cloudflare Access certs before using any
 Access identity. Raw `cf-access-authenticated-user-email` headers are ignored.
 
-The live Access-protected route is `https://crabbox-access.openclaw.ai`. Its Access app is service-token-only (`non_identity`) and currently allows the local Crabbox CLI service token, so automated clients can prove both layers independently: first Cloudflare Access, then the Worker bearer or signed user token.
+An Access-protected route such as `https://broker-access.example.com` can use a service-token-only (`non_identity`) Access app, so automated clients can prove both layers independently: first Cloudflare Access, then the Worker bearer or signed user token.
 
 Local config shape:
 
 ```yaml
 broker:
-  url: https://crabbox.openclaw.ai
+  url: https://broker.example.com
   token: <crabbox-shared-token-or-user-token>
   adminToken: <crabbox-admin-token>
   access:
@@ -107,7 +107,7 @@ broker:
 provider: aws
 ```
 
-Set `CRABBOX_COORDINATOR=https://crabbox-access.openclaw.ai` when you want a
+Set `CRABBOX_COORDINATOR=https://broker-access.example.com` when you want a
 command to use the Access-protected route without changing the default public
 broker URL. `crabbox config show` reports the Access credential state as
 `access_auth=service-token` without printing secrets.
@@ -115,11 +115,11 @@ broker URL. `crabbox config show` reports the Access credential state as
 Useful proof commands:
 
 ```sh
-curl -i https://crabbox-access.openclaw.ai/v1/health
-CRABBOX_COORDINATOR=https://crabbox-access.openclaw.ai bin/crabbox doctor
-CRABBOX_COORDINATOR=https://crabbox-access.openclaw.ai bin/crabbox whoami
-CRABBOX_LIVE=1 CRABBOX_COORDINATOR=https://crabbox-access.openclaw.ai CRABBOX_BIN=bin/crabbox scripts/live-auth-smoke.sh
-CRABBOX_LIVE=1 CRABBOX_LIVE_PROVIDERS=aws CRABBOX_COORDINATOR=https://crabbox-access.openclaw.ai CRABBOX_BIN=bin/crabbox scripts/live-smoke.sh
+curl -i https://broker-access.example.com/v1/health
+CRABBOX_COORDINATOR=https://broker-access.example.com bin/crabbox doctor
+CRABBOX_COORDINATOR=https://broker-access.example.com bin/crabbox whoami
+CRABBOX_LIVE=1 CRABBOX_AUTH_SMOKE_ACCESS=1 CRABBOX_COORDINATOR=https://broker-access.example.com CRABBOX_BIN=bin/crabbox scripts/live-auth-smoke.sh
+CRABBOX_LIVE=1 CRABBOX_LIVE_PROVIDERS=aws CRABBOX_COORDINATOR=https://broker-access.example.com CRABBOX_BIN=bin/crabbox scripts/live-smoke.sh
 ```
 
 The first command should fail at Cloudflare Access without credentials. The auth
@@ -143,10 +143,10 @@ request owner. Normal `crabbox login` requests use the signed GitHub token
 identity.
 
 GitHub user tokens are signed by the Worker and are not admin tokens. Admin
-routes require the separate admin token. The `crabbox.openclaw.ai/*` route is
-the canonical CLI and browser-login endpoint. `crabbox-access.openclaw.ai/*` is
+routes require the separate admin token. The `broker.example.com/*` route is
+the canonical CLI and browser-login endpoint. `broker-access.example.com/*` is
 the service-token-protected endpoint.
-`https://crabbox-coordinator.services-91b.workers.dev` and `crabbox.clawd.bot/*`
+`https://crabbox-coordinator.example.workers.dev` and `fallback.example.com/*`
 are fallbacks.
 
 Related docs:

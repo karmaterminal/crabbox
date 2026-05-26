@@ -2737,13 +2737,13 @@ describe("fleet lease identity and idle", () => {
     const headers = codeForwardHeaders(
       new Headers({
         cookie: "crabbox_session=secret; vscode-tkn=remote-token; other=value",
-        origin: "https://crabbox.openclaw.ai",
+        origin: "https://broker.example.com",
       }),
     );
 
     expect(headers["cookie"]).toBe("vscode-tkn=remote-token");
     expect(headers["cookie"]).not.toContain("crabbox_session");
-    expect(headers.origin).toBe("https://crabbox.openclaw.ai");
+    expect(headers.origin).toBe("https://broker.example.com");
   });
 
   it("creates scoped egress tickets and reports bridge status", async () => {

@@ -25,7 +25,7 @@ Primary output goes to stdout. Progress, diagnostics, and errors go to stderr. J
 
 ```text
 crabbox doctor
-crabbox login [--url <url>] [--provider hetzner|aws|azure|gcp] [--no-browser]
+crabbox login --url <url> [--provider hetzner|aws|azure|gcp] [--no-browser]
 crabbox login --url <url> --token-stdin [--provider hetzner|aws|azure|gcp]
 crabbox logout
 crabbox whoami [--json]
@@ -500,7 +500,7 @@ User config:
 
 ```yaml
 broker:
-  url: https://crabbox.openclaw.ai
+  url: https://broker.example.com
   provider: aws
   token: ...
   access:
@@ -576,14 +576,14 @@ or capacity shifts without rewriting repo config.
 Open GitHub browser login:
 
 ```sh
-crabbox login
+crabbox login --url https://broker.example.com
 ```
 
 Trusted operators can still set shared-token broker auth without putting the token in shell history:
 
 ```sh
 printf '%s' "$TOKEN" | crabbox login \
-  --url https://crabbox.openclaw.ai \
+  --url https://broker.example.com \
   --provider aws \
   --token-stdin
 ```

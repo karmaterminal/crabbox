@@ -2,7 +2,7 @@
 
 ## Trust Model
 
-MVP is for trusted OpenClaw maintainers, not arbitrary untrusted users.
+MVP is for trusted team members, not arbitrary untrusted users.
 
 Assumptions:
 
@@ -16,7 +16,7 @@ Assumptions:
 Cloudflare Access can protect custom coordinator routes. The Worker also enforces auth for every non-health route.
 
 The Access-protected coordinator route is a defense-in-depth layer, not a
-replacement for Crabbox auth. `crabbox-access.openclaw.ai` first requires
+replacement for Crabbox auth. `broker-access.example.com` first requires
 Cloudflare Access service-token credentials at the edge. After that, the same
 Worker still requires a Crabbox signed user token or shared operator bearer
 token before lease, run, log, usage, or admin routes are allowed.
@@ -24,10 +24,10 @@ token before lease, run, log, usage, or admin routes are allowed.
 MVP:
 
 - One-time PIN Access remains available for early fallback.
-- GitHub Access IdP is configured for the `openclaw` org.
-- `crabbox-access.openclaw.ai` is service-token-only and the policy is scoped to the local Crabbox CLI service token.
-- `crabbox login` opens GitHub, receives a signed user token from the coordinator, and stores it in local config.
-- Workers.dev automation can still use a shared bearer token via `crabbox login --token-stdin`.
+- GitHub Access IdP is configured for your allowed GitHub org.
+- `broker-access.example.com` is service-token-only and the policy is scoped to the local Crabbox CLI service token.
+- `crabbox login --url <broker-url>` opens GitHub, receives a signed user token from the coordinator, and stores it in local config.
+- Automation can still use a shared bearer token via `crabbox login --url <broker-url> --token-stdin`.
 - Admin routes require a separate admin bearer token configured as `CRABBOX_ADMIN_TOKEN` in the Worker and `broker.adminToken` or `CRABBOX_COORDINATOR_ADMIN_TOKEN` locally.
 - The CLI sends owner/org headers only for shared-token automation; GitHub login tokens carry owner/org inside the signed token.
 - `CRABBOX_GITHUB_ALLOWED_TEAMS` can restrict browser-login tokens to selected GitHub team slugs after allowed-org membership passes.

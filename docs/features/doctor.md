@@ -55,7 +55,7 @@ diffable across runs.
 - `whoami` succeeds against the configured coordinator with the stored
   token.
 
-When auth is missing, doctor prints `crabbox login` as the next step.
+When auth is missing, doctor prints `crabbox login --url <broker-url>` as the next step.
 
 ## What `provider` Checks
 
@@ -142,7 +142,7 @@ config:
   ok    target: linux
   ok    network: auto
 auth:
-  ok    broker: https://crabbox.openclaw.ai
+  ok    broker: https://broker.example.com
   ok    owner: alex@example.com
   ok    org:   openclaw
 provider:

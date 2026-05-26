@@ -62,7 +62,7 @@ func TestAzureLoginPreservesExistingConfig(t *testing.T) {
 
 	initial := fileConfig{
 		Provider: "hetzner",
-		Broker:   &fileBrokerConfig{URL: "https://crabbox.openclaw.ai", Token: "tok"},
+		Broker:   &fileBrokerConfig{URL: "https://broker.example.com", Token: "tok"},
 	}
 	data, _ := yaml.Marshal(initial)
 	if err := os.WriteFile(cfgPath, data, 0o600); err != nil {

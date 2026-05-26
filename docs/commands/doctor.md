@@ -83,7 +83,7 @@ config:
   ok    provider: aws
   ok    target: linux
 auth:
-  ok    broker: https://crabbox.openclaw.ai
+  ok    broker: https://broker.example.com
   ok    owner: alex@example.com
 network:
   ok    coordinator dns

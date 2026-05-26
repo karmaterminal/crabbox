@@ -34,7 +34,7 @@ Linux, and Windows. Download the matching archive from
 ## Step 2. Log In
 
 ```sh
-crabbox login
+crabbox login --url https://broker.example.com
 ```
 
 `login` opens a browser to the GitHub OAuth flow. The broker exchanges the
@@ -48,11 +48,11 @@ crabbox whoami
 
 Confirms the resolved owner, org, broker URL, and selected provider.
 
-### Hosted Broker Access
+### Broker Access
 
-The hosted broker at `https://crabbox.openclaw.ai` is for users who pass that
-broker's configured GitHub org/team allowlist. A completed GitHub OAuth flow can
-still be rejected when your account is outside that allowlist.
+Broker access is deployment-specific. Use the coordinator URL and GitHub
+org/team allowlist from your team. A completed GitHub OAuth flow can still be
+rejected when your account is outside that allowlist.
 
 For a personal or third-party installation, choose one path:
 
@@ -62,8 +62,8 @@ For a personal or third-party installation, choose one path:
 - Self-host the Worker broker when you want broker-owned provider credentials,
   active-lease limits, monthly spend caps, `crabbox usage`, cleanup alarms, and
   a shared team endpoint.
-- Request access only if the hosted broker operator has a defined onboarding
-  path for your org; the public default is not an open community broker.
+- Request access only if the broker operator has a defined onboarding path for
+  your org; a team endpoint is not automatically an open community broker.
 
 Direct-provider examples:
 
@@ -83,7 +83,7 @@ use shared-token auth:
 
 ```sh
 printf '%s' "$TOKEN" | crabbox login \
-  --url https://crabbox.openclaw.ai \
+  --url https://broker.example.com \
   --provider aws \
   --token-stdin
 ```

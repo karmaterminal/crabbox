@@ -20,41 +20,41 @@ import (
 )
 
 func TestWebVNCURLs(t *testing.T) {
-	if got := webVNCAgentURL("https://crabbox.openclaw.ai", "cbx_abcdef123456"); got != "wss://crabbox.openclaw.ai/v1/leases/cbx_abcdef123456/webvnc/agent" {
+	if got := webVNCAgentURL("https://broker.example.com", "cbx_abcdef123456"); got != "wss://broker.example.com/v1/leases/cbx_abcdef123456/webvnc/agent" {
 		t.Fatalf("agent URL=%q", got)
 	}
-	if got := webVNCAgentURLWithCapabilities("https://crabbox.openclaw.ai", "cbx_abcdef123456", "desktop_theme"); got != "wss://crabbox.openclaw.ai/v1/leases/cbx_abcdef123456/webvnc/agent?capabilities=desktop_theme" {
+	if got := webVNCAgentURLWithCapabilities("https://broker.example.com", "cbx_abcdef123456", "desktop_theme"); got != "wss://broker.example.com/v1/leases/cbx_abcdef123456/webvnc/agent?capabilities=desktop_theme" {
 		t.Fatalf("agent capability URL=%q", got)
 	}
-	if got := webVNCAgentURLWithTicket("https://crabbox.openclaw.ai", "cbx_abcdef123456", "wvnc_abc"); got != "wss://crabbox.openclaw.ai/v1/leases/cbx_abcdef123456/webvnc/agent?ticket=wvnc_abc" {
+	if got := webVNCAgentURLWithTicket("https://broker.example.com", "cbx_abcdef123456", "wvnc_abc"); got != "wss://broker.example.com/v1/leases/cbx_abcdef123456/webvnc/agent?ticket=wvnc_abc" {
 		t.Fatalf("agent fallback URL=%q", got)
 	}
-	if got := webVNCAgentURLWithTicketAndCapabilities("https://crabbox.openclaw.ai", "cbx_abcdef123456", "wvnc_abc", "desktop_theme"); got != "wss://crabbox.openclaw.ai/v1/leases/cbx_abcdef123456/webvnc/agent?capabilities=desktop_theme&ticket=wvnc_abc" {
+	if got := webVNCAgentURLWithTicketAndCapabilities("https://broker.example.com", "cbx_abcdef123456", "wvnc_abc", "desktop_theme"); got != "wss://broker.example.com/v1/leases/cbx_abcdef123456/webvnc/agent?capabilities=desktop_theme&ticket=wvnc_abc" {
 		t.Fatalf("agent capability fallback URL=%q", got)
 	}
-	if got := webVNCPortalURL("https://crabbox.openclaw.ai/", "cbx_abcdef123456", "", "secret value"); got != "https://crabbox.openclaw.ai/portal/leases/cbx_abcdef123456/vnc#password=secret+value" {
+	if got := webVNCPortalURL("https://broker.example.com/", "cbx_abcdef123456", "", "secret value"); got != "https://broker.example.com/portal/leases/cbx_abcdef123456/vnc#password=secret+value" {
 		t.Fatalf("portal URL=%q", got)
 	}
-	if got := webVNCPortalURL("https://crabbox.openclaw.ai/", "cbx_abcdef123456", "ec2-user", "secret value"); got != "https://crabbox.openclaw.ai/portal/leases/cbx_abcdef123456/vnc#password=secret+value&username=ec2-user" {
+	if got := webVNCPortalURL("https://broker.example.com/", "cbx_abcdef123456", "ec2-user", "secret value"); got != "https://broker.example.com/portal/leases/cbx_abcdef123456/vnc#password=secret+value&username=ec2-user" {
 		t.Fatalf("portal URL=%q", got)
 	}
-	if got := webVNCPortalURL("https://crabbox.openclaw.ai/", "cbx_abcdef123456", "", "Cb1!abc"); got != "https://crabbox.openclaw.ai/portal/leases/cbx_abcdef123456/vnc#password=Cb1%21abc" {
+	if got := webVNCPortalURL("https://broker.example.com/", "cbx_abcdef123456", "", "Cb1!abc"); got != "https://broker.example.com/portal/leases/cbx_abcdef123456/vnc#password=Cb1%21abc" {
 		t.Fatalf("portal URL=%q", got)
 	}
-	if got := webVNCPortalURL("https://crabbox.openclaw.ai/#stale", "cbx_abcdef123456", "", ""); got != "https://crabbox.openclaw.ai/portal/leases/cbx_abcdef123456/vnc" {
+	if got := webVNCPortalURL("https://broker.example.com/#stale", "cbx_abcdef123456", "", ""); got != "https://broker.example.com/portal/leases/cbx_abcdef123456/vnc" {
 		t.Fatalf("portal URL=%q", got)
 	}
-	if got := webVNCPortalURL("https://crabbox.openclaw.ai/", "cbx_abcdef123456", "", "", webVNCPortalOptions{TakeControl: true}); got != "https://crabbox.openclaw.ai/portal/leases/cbx_abcdef123456/vnc#control=take" {
+	if got := webVNCPortalURL("https://broker.example.com/", "cbx_abcdef123456", "", "", webVNCPortalOptions{TakeControl: true}); got != "https://broker.example.com/portal/leases/cbx_abcdef123456/vnc#control=take" {
 		t.Fatalf("portal URL with control=%q", got)
 	}
-	if got := webVNCPortalURL("https://crabbox.openclaw.ai/", "cbx_abcdef123456", "", "secret value", webVNCPortalOptions{TakeControl: true}); got != "https://crabbox.openclaw.ai/portal/leases/cbx_abcdef123456/vnc#control=take&password=secret+value" {
+	if got := webVNCPortalURL("https://broker.example.com/", "cbx_abcdef123456", "", "secret value", webVNCPortalOptions{TakeControl: true}); got != "https://broker.example.com/portal/leases/cbx_abcdef123456/vnc#control=take&password=secret+value" {
 		t.Fatalf("portal URL with password and control=%q", got)
 	}
-	got := webVNCPortalURL("https://crabbox.openclaw.ai/", "cbx_abcdef123456", "", "JVS/yMb%2B")
-	if got != "https://crabbox.openclaw.ai/portal/leases/cbx_abcdef123456/vnc#password=JVS%2FyMb%252B" {
+	got := webVNCPortalURL("https://broker.example.com/", "cbx_abcdef123456", "", "JVS/yMb%2B")
+	if got != "https://broker.example.com/portal/leases/cbx_abcdef123456/vnc#password=JVS%2FyMb%252B" {
 		t.Fatalf("portal URL with escaped password=%q", got)
 	}
-	fragment, ok := strings.CutPrefix(got, "https://crabbox.openclaw.ai/portal/leases/cbx_abcdef123456/vnc#")
+	fragment, ok := strings.CutPrefix(got, "https://broker.example.com/portal/leases/cbx_abcdef123456/vnc#")
 	if !ok {
 		t.Fatalf("portal URL missing expected fragment: %q", got)
 	}

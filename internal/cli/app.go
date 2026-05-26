@@ -127,8 +127,8 @@ Usage:
   crabbox run [flags] -- <command...>
 
 Start Here:
-  crabbox login
-      Open GitHub login and store broker credentials.
+  crabbox login --url https://broker.example.com
+      Open GitHub login for your broker and store credentials.
   crabbox doctor
       Check local tools, config, broker, and provider access.
   crabbox init
@@ -238,7 +238,7 @@ Global:
   --version      Print version
 
 Config:
-  crabbox login [--url <url>] [--provider aws|azure|hetzner] [--no-browser]
+  crabbox login --url <url> [--provider aws|azure|hetzner] [--no-browser]
   crabbox login --url <url> --token-stdin [--provider aws|azure|hetzner]
   crabbox azure login [--subscription <id>] [--location <loc>] [--json]
   crabbox config path

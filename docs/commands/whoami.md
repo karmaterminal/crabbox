@@ -11,7 +11,7 @@ crabbox whoami --json
 ## Human Output
 
 ```text
-user=alex@example.com org=openclaw auth=github broker=https://crabbox.openclaw.ai
+user=alex@example.com org=openclaw auth=github broker=https://broker.example.com
 ```
 
 The fields:
@@ -29,7 +29,7 @@ The fields:
   "owner": "alex@example.com",
   "org": "openclaw",
   "auth": "github",
-  "broker": "https://crabbox.openclaw.ai",
+  "broker": "https://broker.example.com",
   "tokenSource": "user-config",
   "accessJwtVerified": false
 }

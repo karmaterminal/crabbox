@@ -6,8 +6,8 @@
 crabbox config path
 crabbox config show
 crabbox config show --json
-printf '%s' "$TOKEN" | crabbox config set-broker --url https://crabbox.openclaw.ai --provider aws --token-stdin
-printf '%s' "$ADMIN_TOKEN" | crabbox config set-broker --url https://crabbox.openclaw.ai --admin-token-stdin
+printf '%s' "$TOKEN" | crabbox config set-broker --url https://broker.example.com --provider aws --token-stdin
+printf '%s' "$ADMIN_TOKEN" | crabbox config set-broker --url https://broker.example.com --admin-token-stdin
 ```
 
 Subcommands:

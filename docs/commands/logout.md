@@ -8,7 +8,7 @@ crabbox logout --json
 ```
 
 The broker URL and provider stay in place so a later `crabbox login` or
-`crabbox login --token-stdin` can reuse them. Per-lease SSH keys, repo
+`crabbox login --token-stdin` can reuse the configured URL. Per-lease SSH keys, repo
 claims, and history records are unaffected.
 
 After logout:

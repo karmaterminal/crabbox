@@ -8,7 +8,6 @@ fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cb="${CRABBOX_BIN:-$root/bin/crabbox}"
-coord="${CRABBOX_AUTH_SMOKE_COORDINATOR:-${CRABBOX_COORDINATOR:-https://crabbox-access.openclaw.ai}}"
 config_cwd="$PWD"
 config_paths=()
 
@@ -125,13 +124,19 @@ request_json() {
 
 shared_token="$(required_config_value broker.token)"
 admin_token="$(required_config_value broker.adminToken)"
+coord="${CRABBOX_AUTH_SMOKE_COORDINATOR:-${CRABBOX_COORDINATOR:-$(config_value broker.url 2>/dev/null || true)}}"
+if [[ -z "$coord" ]]; then
+  echo "missing coordinator URL: set CRABBOX_AUTH_SMOKE_COORDINATOR, CRABBOX_COORDINATOR, or broker.url" >&2
+  exit 2
+fi
 access_client_id="${CRABBOX_ACCESS_CLIENT_ID:-$(config_value broker.access.clientId 2>/dev/null || true)}"
 access_client_secret="${CRABBOX_ACCESS_CLIENT_SECRET:-$(config_value broker.access.clientSecret 2>/dev/null || true)}"
 owner="${CRABBOX_OWNER:-$(git config user.email 2>/dev/null || true)}"
 owner="${owner:-crabbox-auth-smoke@example.invalid}"
-org="${CRABBOX_ORG:-openclaw}"
+org="${CRABBOX_ORG:-example-org}"
 
-if [[ "$coord" == *"crabbox-access.openclaw.ai"* ]]; then
+access_smoke="${CRABBOX_AUTH_SMOKE_ACCESS:-0}"
+if [[ "$access_smoke" == "1" ]]; then
   no_access_code="$(curl -sS -o /dev/null -w '%{http_code}' "${coord%/}/v1/health")"
   if [[ "$no_access_code" != "403" ]]; then
     echo "failed no-access edge check: HTTP $no_access_code" >&2
@@ -142,6 +147,9 @@ if [[ "$coord" == *"crabbox-access.openclaw.ai"* ]]; then
     echo "access auth smoke requires CRABBOX_ACCESS_CLIENT_ID/CRABBOX_ACCESS_CLIENT_SECRET or broker.access.clientId/clientSecret for $coord" >&2
     exit 2
   fi
+elif [[ "$access_smoke" != "0" ]]; then
+  echo "CRABBOX_AUTH_SMOKE_ACCESS must be 0 or 1" >&2
+  exit 2
 fi
 
 if ! whoami="$(env -u CRABBOX_COORDINATOR_TOKEN CRABBOX_COORDINATOR="$coord" "$cb" whoami --json 2>&1)"; then

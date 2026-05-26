@@ -18,7 +18,9 @@ smoke tests, durable logs/results, or fast sync from a dirty local checkout.
   `command -v crabbox && crabbox --version && crabbox --help | sed -n '1,80p'`.
 - Install from the repository release docs or use `bin/crabbox` after a local
   build.
-- Auth is required for brokered operation. Normal users run `crabbox login`.
+- Auth is required for brokered operation. First login needs the broker URL:
+  `crabbox login --url <broker-url>`.
+- After `broker.url` is configured, `crabbox login` reuses that broker URL.
 - Trusted operator automation can store the shared token with:
   `printf '%s' "$CRABBOX_COORDINATOR_TOKEN" | crabbox login --url <broker-url> --provider aws --token-stdin`.
 - User config lives at `~/Library/Application Support/crabbox/config.yaml` on

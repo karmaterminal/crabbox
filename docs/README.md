@@ -52,7 +52,7 @@ Verify with `crabbox --version`.
 
 ```sh
 # log in once per machine - stores a broker token in user config
-crabbox login
+crabbox login --url https://broker.example.com
 
 # one-shot run on a fresh leased box
 crabbox run -- pnpm test

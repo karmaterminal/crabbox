@@ -270,7 +270,7 @@ describe("coordinator auth", () => {
   it("redirects browser portal auth routes to the configured public origin", async () => {
     let fleetCalled = false;
     const env = {
-      CRABBOX_PUBLIC_URL: "https://crabbox.openclaw.ai",
+      CRABBOX_PUBLIC_URL: "https://broker.example.com",
       FLEET: {
         idFromName: () => "default",
         get: () => {
@@ -288,7 +288,7 @@ describe("coordinator auth", () => {
     );
     expect(login.status).toBe(302);
     expect(login.headers.get("location")).toBe(
-      "https://crabbox.openclaw.ai/portal/login?returnTo=%2Fportal%2Fleases%2Fcbx_1%2Fvnc",
+      "https://broker.example.com/portal/login?returnTo=%2Fportal%2Fleases%2Fcbx_1%2Fvnc",
     );
 
     const logout = await coordinator.fetch(
@@ -296,7 +296,7 @@ describe("coordinator auth", () => {
       env,
     );
     expect(logout.status).toBe(302);
-    expect(logout.headers.get("location")).toBe("https://crabbox.openclaw.ai/portal/logout");
+    expect(logout.headers.get("location")).toBe("https://broker.example.com/portal/logout");
     expect(fleetCalled).toBe(false);
   });
 });

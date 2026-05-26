@@ -99,7 +99,7 @@ locally and keep it running.
 Check bridge health with:
 
 ```sh
-curl https://crabbox.openclaw.ai/portal/leases/<lease>/code/health
+curl https://broker.example.com/portal/leases/<lease>/code/health
 ```
 
 When authenticated, the health response includes whether the code bridge agent

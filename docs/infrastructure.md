@@ -1,32 +1,32 @@
 # Infrastructure
 
-## Current Intended Setup
+## Example Setup
 
 Canonical Worker endpoint:
 
 ```text
-https://crabbox.openclaw.ai
+https://broker.example.com
 ```
 
 Access-protected Worker endpoint:
 
 ```text
-https://crabbox-access.openclaw.ai
+https://broker-access.example.com
 ```
 
-Legacy fallback route:
+Optional fallback route:
 
 ```text
-https://crabbox.clawd.bot
+https://fallback.example.com
 ```
 
 Workers.dev fallback endpoint:
 
 ```text
-https://crabbox-coordinator.services-91b.workers.dev
+https://crabbox-coordinator.example.workers.dev
 ```
 
-The `crabbox.openclaw.ai/*` Worker route is the stable automation and browser-login endpoint. `crabbox-access.openclaw.ai/*` is the Cloudflare Access-protected route for service-token proof and hardened automation. `crabbox.clawd.bot/*` and the workers.dev URL remain fallback routes.
+The `broker.example.com/*` Worker route is the stable automation and browser-login endpoint. `broker-access.example.com/*` is the Cloudflare Access-protected route for service-token proof and hardened automation. A fallback custom route and the workers.dev URL can remain available for recovery.
 
 ## Cloudflare
 
@@ -40,12 +40,12 @@ Use Cloudflare for:
 
 Known setup:
 
-- Access org: `crabbox-openclaw.cloudflareaccess.com`.
+- Access org: `crabbox-team.cloudflareaccess.com`.
 - Access enabled.
 - Current IdPs: one-time PIN and GitHub.
-- GitHub IdP name: `GitHub OpenClaw`.
-- GitHub IdP restriction: org `openclaw`.
-- Service-token Access app: `Crabbox Coordinator Service Token` on `crabbox-access.openclaw.ai`.
+- GitHub IdP name: `GitHub`.
+- GitHub IdP restriction: your allowed org or teams.
+- Service-token Access app: `Crabbox Coordinator Service Token` on `broker-access.example.com`.
 - Service-token Access policy: `CLI service token`, `non_identity`, include the local Crabbox CLI service token.
 
 Required env:
@@ -62,13 +62,13 @@ CRABBOX_GITHUB_ALLOWED_ORGS
 CRABBOX_GITHUB_ALLOWED_TEAMS
 ```
 
-Crabbox browser login needs a GitHub OAuth app owned by the `openclaw` org:
+Crabbox browser login needs a GitHub OAuth app owned by your deployment org:
 
 ```text
-GitHub org: openclaw
+GitHub org: example-org
 App name: Crabbox Access
-Homepage URL: https://crabbox.openclaw.ai
-Callback URL: https://crabbox.openclaw.ai/v1/auth/github/callback
+Homepage URL: https://broker.example.com
+Callback URL: https://broker.example.com/v1/auth/github/callback
 ```
 
 Store resulting values outside the repo:
@@ -117,29 +117,29 @@ Current local status:
 
 - Core Cloudflare, Hetzner, and GitHub tokens are present in local `~/.profile`.
 - The Crabbox Cloudflare token is mirrored to MacBook Pro `~/.profile`.
-- `CRABBOX_COORDINATOR` and `CRABBOX_COORDINATOR_TOKEN` are present in local and MacBook Pro `~/.profile`.
+- `CRABBOX_COORDINATOR` and `CRABBOX_COORDINATOR_TOKEN` may be set in a local shell profile for operator workflows.
 - The GitHub OAuth client ID and secret may be stored locally as `CRABBOX_GITHUB_OAUTH_*` and deployed to the Worker as `CRABBOX_GITHUB_CLIENT_*`.
 - Cloudflare Access service-token CLI credentials can be stored locally as `CRABBOX_ACCESS_CLIENT_ID` and `CRABBOX_ACCESS_CLIENT_SECRET`; `CRABBOX_ACCESS_TOKEN` can carry an already minted Access JWT for protected fallback routes.
 - Crabbox browser-login OAuth secrets are deployed as Worker secrets `CRABBOX_GITHUB_CLIENT_ID`, `CRABBOX_GITHUB_CLIENT_SECRET`, and `CRABBOX_SESSION_SECRET`.
-- Worker routes are attached for `crabbox.openclaw.ai/*` and `crabbox-access.openclaw.ai/*`.
+- Worker routes are attached for your normal and Access-protected broker hosts.
 - `CRABBOX_COORDINATOR`, `CRABBOX_PROFILE`, `CRABBOX_CONFIG`, `CRABBOX_FLEET_CONFIG`, `CRABBOX_SSH_KEY`, `CRABBOX_NO_COLOR`, and `CRABBOX_LOG` are optional CLI defaults and are not required to build the MVP.
 
-The Cloudflare token `crabbox-deploy` is scoped to the OpenClaw Cloudflare account and the Crabbox/OpenClaw routes it manages. It verifies access to Workers scripts, Access applications, Access identity providers, Access keys, DNS records, and zone Worker routes from both the local machine and MacBook Pro.
+The Cloudflare deploy token should be scoped to the account and routes this deployment manages. It needs access to Workers scripts, Access applications, Access identity providers, Access keys, DNS records, and zone Worker routes.
 
 ## DNS State
 
-Current path:
+Custom-domain path:
 
-1. Keep the main `openclaw.ai` website on Vercel.
-2. Manage `crabbox.openclaw.ai` in the OpenClaw Cloudflare account.
-3. Proxy `crabbox.openclaw.ai/*` and `crabbox-access.openclaw.ai/*` to the `crabbox-coordinator` Worker.
-4. Set `CRABBOX_PUBLIC_URL=https://crabbox.openclaw.ai`.
-5. Configure the GitHub OAuth callback on `https://crabbox.openclaw.ai/v1/auth/github/callback`.
+1. Keep the main website wherever it is hosted.
+2. Manage `broker.example.com` in the deployment Cloudflare account.
+3. Proxy `broker.example.com/*` and `broker-access.example.com/*` to the `crabbox-coordinator` Worker.
+4. Set `CRABBOX_PUBLIC_URL=https://broker.example.com`.
+5. Configure the GitHub OAuth callback on `https://broker.example.com/v1/auth/github/callback`.
 
 Fallback path:
 
 1. Use the workers.dev URL for health checks if DNS is disrupted.
-2. Use `crabbox.clawd.bot` only as a legacy fallback.
+2. Use a fallback custom route only when you need DNS recovery independent from the canonical host.
 
 ## Hetzner
 
@@ -363,8 +363,7 @@ Profiles choose a default class, and commands can override with `--class`.
 
 ## Self-Hosted Broker Minimum
 
-Use this path when your users are not allowed onto the hosted
-`https://crabbox.openclaw.ai` broker but you still want broker-owned provider
+Use this path when you want your own broker-owned provider
 credentials, coordinator cleanup, active-lease limits, monthly spend caps, and
 `crabbox usage`.
 
@@ -429,18 +428,18 @@ Deployment should:
 3. Set Worker secrets.
 4. Deploy Worker.
 5. Verify `/v1/health` on `workers.dev`.
-6. Configure route/custom domain on `crabbox.openclaw.ai`.
+6. Configure route/custom domain on `broker.example.com`.
 7. Verify `/v1/health` on the canonical and fallback domains.
 
 Use `npx wrangler` from the Worker package unless `wrangler` is installed globally. Do not assume `hcloud` is installed; the implementation can use the Hetzner API directly from Go or from the Worker.
 
-Current deployed coordinator:
+Example deployed coordinator:
 
 ```text
-https://crabbox.openclaw.ai
-https://crabbox-access.openclaw.ai
-https://crabbox-coordinator.services-91b.workers.dev
-crabbox.clawd.bot/* -> crabbox-coordinator fallback
+https://broker.example.com
+https://broker-access.example.com
+https://crabbox-coordinator.example.workers.dev
+fallback.example.com/* -> crabbox-coordinator fallback
 ```
 
 Current Worker secrets and settings:
@@ -471,7 +470,7 @@ CRABBOX_TAILSCALE_TAGS optional
 CRABBOX_ARTIFACTS_BACKEND optional; currently r2
 CRABBOX_ARTIFACTS_BUCKET optional; currently openclaw-crabbox-artifacts
 CRABBOX_ARTIFACTS_PREFIX optional; currently crabbox-artifacts
-CRABBOX_ARTIFACTS_BASE_URL optional; currently https://artifacts.openclaw.ai
+CRABBOX_ARTIFACTS_BASE_URL optional; currently https://artifacts.example.com
 CRABBOX_ARTIFACTS_REGION optional; currently auto
 CRABBOX_ARTIFACTS_ENDPOINT_URL optional; currently the R2 S3-compatible endpoint
 CRABBOX_ARTIFACTS_ACCESS_KEY_ID optional; Worker secret when artifacts backend is enabled

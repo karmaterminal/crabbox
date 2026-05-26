@@ -187,7 +187,7 @@ func publishArtifactFiles(ctx context.Context, opts artifactPublishOptions, file
 
 func publishArtifactFilesBroker(ctx context.Context, coord *CoordinatorClient, opts artifactPublishOptions, files []artifactFile) ([]artifactFile, error) {
 	if coord == nil || coord.Token == "" {
-		return nil, exit(2, "artifacts publish --storage broker requires a configured coordinator; run `crabbox login` or pass --storage local|s3|r2")
+		return nil, exit(2, "artifacts publish --storage broker requires a configured coordinator; run `crabbox login --url <broker-url>` or pass --storage local|s3|r2")
 	}
 	ensureArtifactPublishPrefix(&opts)
 	input := CoordinatorArtifactUploadRequest{

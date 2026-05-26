@@ -100,7 +100,7 @@ ssh tunnel: ssh ... -L 5901:127.0.0.1:5900 ...
 portal bridge: connected=true viewers=2 observers=1 slots=2
 portal controller: peter
 event: 2026-05-07T12:00:00Z bridge_connected
-webvnc: https://crabbox.openclaw.ai/portal/leases/cbx_.../vnc#password=...
+webvnc: https://broker.example.com/portal/leases/cbx_.../vnc#password=...
 fallback: crabbox vnc --provider aws --target linux --network tailscale --id cbx_... --open
 ```
 
@@ -196,7 +196,7 @@ Limitations:
 
 `webvnc requires a configured coordinator login`
 
-Run `crabbox login` for the coordinator you are using. WebVNC needs both the CLI
+Run `crabbox login --url <broker-url>` for the coordinator you are using. WebVNC needs both the CLI
 bridge and the browser portal to authenticate with the coordinator.
 
 `webvnc currently supports coordinator-backed hetzner/aws/azure desktop leases`

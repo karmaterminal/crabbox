@@ -102,11 +102,11 @@ scripts/deploy-worker-smoke.sh
 ```
 
 It runs Worker format, lint, typecheck, tests, dry-run build, deploy, and public
-health checks for `crabbox.openclaw.ai` plus the workers.dev fallback. To include
-a short AWS lease smoke after deploy:
+health checks for the comma-separated real deployment URLs in
+`CRABBOX_DEPLOY_SMOKE_URLS`. To include a short AWS lease smoke after deploy:
 
 ```sh
-CRABBOX_DEPLOY_SMOKE_AWS=1 CRABBOX_LIVE_REPO=/path/to/my-app scripts/deploy-worker-smoke.sh
+CRABBOX_DEPLOY_SMOKE_URLS="https://$BROKER_HOST/v1/health" CRABBOX_DEPLOY_SMOKE_AWS=1 CRABBOX_LIVE_REPO=/path/to/my-app scripts/deploy-worker-smoke.sh
 ```
 
 Required Worker secrets:
@@ -168,7 +168,7 @@ Our current coordinator artifact config is R2-compatible:
 CRABBOX_ARTIFACTS_BACKEND=r2
 CRABBOX_ARTIFACTS_BUCKET=openclaw-crabbox-artifacts
 CRABBOX_ARTIFACTS_PREFIX=crabbox-artifacts
-CRABBOX_ARTIFACTS_BASE_URL=https://artifacts.openclaw.ai
+CRABBOX_ARTIFACTS_BASE_URL=https://artifacts.example.com
 CRABBOX_ARTIFACTS_REGION=auto
 CRABBOX_ARTIFACTS_ENDPOINT_URL=<account>.r2.cloudflarestorage.com
 ```
@@ -196,31 +196,31 @@ CRABBOX_DEFAULT_ORG
 The canonical Worker URL is:
 
 ```text
-https://crabbox.openclaw.ai
+https://broker.example.com
 ```
 
 The Access-protected Worker URL is:
 
 ```text
-https://crabbox-access.openclaw.ai
+https://broker-access.example.com
 ```
 
-The `crabbox.openclaw.ai/*` route is attached to the coordinator Worker for normal CLI and browser-login use. `crabbox-access.openclaw.ai/*` is attached to the same Worker behind Cloudflare Access for service-token proof and hardened automation. Bearer-token CLI automation talks to the Worker with `CRABBOX_SHARED_TOKEN`/`CRABBOX_COORDINATOR_TOKEN`; GitHub browser login stores a user-scoped signed token. Access-protected routes also require `CRABBOX_ACCESS_CLIENT_ID` plus `CRABBOX_ACCESS_CLIENT_SECRET`, or `CRABBOX_ACCESS_TOKEN` for an already minted Access JWT.
+The `broker.example.com/*` route is attached to the coordinator Worker for normal CLI and browser-login use. `broker-access.example.com/*` is attached to the same Worker behind Cloudflare Access for service-token proof and hardened automation. Bearer-token CLI automation talks to the Worker with `CRABBOX_SHARED_TOKEN`/`CRABBOX_COORDINATOR_TOKEN`; GitHub browser login stores a user-scoped signed token. Access-protected routes also require `CRABBOX_ACCESS_CLIENT_ID` plus `CRABBOX_ACCESS_CLIENT_SECRET`, or `CRABBOX_ACCESS_TOKEN` for an already minted Access JWT.
 
 Use the protected route when testing the Cloudflare Access layer:
 
 ```sh
-CRABBOX_COORDINATOR=https://crabbox-access.openclaw.ai bin/crabbox doctor
-CRABBOX_COORDINATOR=https://crabbox-access.openclaw.ai bin/crabbox whoami
-CRABBOX_LIVE=1 CRABBOX_COORDINATOR=https://crabbox-access.openclaw.ai CRABBOX_BIN=bin/crabbox scripts/live-auth-smoke.sh
-CRABBOX_LIVE=1 CRABBOX_LIVE_PROVIDERS=aws CRABBOX_COORDINATOR=https://crabbox-access.openclaw.ai CRABBOX_BIN=bin/crabbox scripts/live-smoke.sh
+CRABBOX_COORDINATOR=https://broker-access.example.com bin/crabbox doctor
+CRABBOX_COORDINATOR=https://broker-access.example.com bin/crabbox whoami
+CRABBOX_LIVE=1 CRABBOX_AUTH_SMOKE_ACCESS=1 CRABBOX_COORDINATOR=https://broker-access.example.com CRABBOX_BIN=bin/crabbox scripts/live-auth-smoke.sh
+CRABBOX_LIVE=1 CRABBOX_LIVE_PROVIDERS=aws CRABBOX_COORDINATOR=https://broker-access.example.com CRABBOX_BIN=bin/crabbox scripts/live-smoke.sh
 ```
 
 `doctor` should report `access=service-token`. `scripts/live-auth-smoke.sh`
 proves the auth boundary without leasing a machine: no Access headers are denied
 at the edge, shared-token user auth works, raw Access identity spoofing is
 ignored, shared-token admin calls fail, and admin-token admin calls pass. A raw
-request without Access headers to `https://crabbox-access.openclaw.ai/v1/health`
+request without Access headers to `https://broker-access.example.com/v1/health`
 should return a Cloudflare Access `403`.
 
 Use `crabbox config show` to confirm which URL and provider the CLI will use:

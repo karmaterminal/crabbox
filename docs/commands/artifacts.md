@@ -263,7 +263,7 @@ Coordinator artifact values split into two groups:
   used only by the coordinator to sign artifact upload/read URLs.
 
 Our deployed coordinator currently uses R2-compatible storage with public final
-URLs on `https://artifacts.openclaw.ai`, bucket
+URLs on `https://artifacts.example.com`, bucket
 `openclaw-crabbox-artifacts`, and object prefix `crabbox-artifacts`. The actual
 R2 access key id and secret access key are Worker secrets; they are not required
 on developer machines for normal `crabbox artifacts publish`.

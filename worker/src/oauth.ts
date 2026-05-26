@@ -197,7 +197,7 @@ async function githubAuthCallback(
   if (!pending || pending.state !== state || Date.parse(pending.expiresAt) <= Date.now()) {
     return html(
       "Crabbox login expired",
-      "The login request expired. Run crabbox login again.",
+      "The login request expired. Run crabbox login --url <broker-url> again.",
       400,
     );
   }
@@ -211,7 +211,7 @@ async function githubAuthCallback(
     const identity = await githubIdentity(accessToken);
     const requestedOrg = requestOrg(
       new Request(request.url, {
-        headers: { "x-crabbox-org": env.CRABBOX_DEFAULT_ORG ?? "openclaw" },
+        headers: { "x-crabbox-org": env.CRABBOX_DEFAULT_ORG ?? "" },
       }),
       env,
     );
@@ -410,7 +410,7 @@ async function requireAllowedTeamMembership(
 
 function allowedGitHubOrgs(env: Env): string[] {
   const raw = env.CRABBOX_GITHUB_ALLOWED_ORGS || env.CRABBOX_GITHUB_ALLOWED_ORG;
-  const values = raw ? raw.split(",") : [env.CRABBOX_DEFAULT_ORG || "openclaw"];
+  const values = raw ? raw.split(",") : [env.CRABBOX_DEFAULT_ORG || ""];
   return values.map((value) => value.trim().toLowerCase()).filter(Boolean);
 }
 

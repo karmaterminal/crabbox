@@ -9,6 +9,7 @@
 ### Fixed
 
 - Fixed Daytona provider sandbox inventory to use Daytona's cursor-based listing API.
+- Removed OpenClaw-specific hosted broker defaults and documentation from the generic Crabbox broker login flow.
 
 ## 0.20.0 - 2026-05-26
 

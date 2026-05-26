@@ -41,6 +41,124 @@ run() {
   "$@"
 }
 
+validate_smoke_url() {
+  local url="$1" rest authority path host host_lower port labels label octets octet
+  if [[ "$url" == *[[:space:]]* || "$url" == *'<'* || "$url" == *'>'* ]]; then
+    printf 'CRABBOX_DEPLOY_SMOKE_URLS entries must be concrete URLs without spaces or angle brackets: %s\n' "$url" >&2
+    exit 2
+  fi
+  case "$url" in
+    http://* | https://*) ;;
+    *)
+      printf 'CRABBOX_DEPLOY_SMOKE_URLS entries must start with http:// or https://: %s\n' "$url" >&2
+      exit 2
+      ;;
+  esac
+  rest="${url#http://}"
+  rest="${rest#https://}"
+  authority="${rest%%/*}"
+  if [[ "$authority" == *"@"* ]]; then
+    printf 'CRABBOX_DEPLOY_SMOKE_URLS entry has a malformed host: %s\n' "$authority" >&2
+    exit 2
+  fi
+  path="${rest#"$authority"}"
+  case "$path" in
+    /v1/health | /v1/health\?*) ;;
+    *)
+      printf 'CRABBOX_DEPLOY_SMOKE_URLS entries must point at /v1/health: %s\n' "$url" >&2
+      exit 2
+      ;;
+  esac
+  if [[ "$authority" == *":"* ]]; then
+    port="${authority##*:}"
+    host="${authority%:*}"
+    if [[ "$host" == *":"* || ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
+      printf 'CRABBOX_DEPLOY_SMOKE_URLS entry has a malformed host or port: %s\n' "$authority" >&2
+      exit 2
+    fi
+  else
+    host="$authority"
+  fi
+  if [[ -z "$host" ]]; then
+    printf 'CRABBOX_DEPLOY_SMOKE_URLS entry is missing a host: %s\n' "$url" >&2
+    exit 2
+  fi
+  if [[ "$host" == *..* || "$host" == .* || "$host" == *. ]]; then
+    printf 'CRABBOX_DEPLOY_SMOKE_URLS entry has a malformed host: %s\n' "$host" >&2
+    exit 2
+  fi
+  if [[ "$host" != "localhost" ]]; then
+    if [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+      IFS='.' read -r -a octets <<< "$host"
+      for octet in "${octets[@]}"; do
+        if [[ "$octet" -gt 255 ]]; then
+          printf 'CRABBOX_DEPLOY_SMOKE_URLS entry has a malformed host: %s\n' "$host" >&2
+          exit 2
+        fi
+      done
+    else
+      if [[ "$host" != *.* ]]; then
+        printf 'CRABBOX_DEPLOY_SMOKE_URLS entry must use a deployed FQDN, IP, or localhost: %s\n' "$host" >&2
+        exit 2
+      fi
+      IFS='.' read -r -a labels <<< "$host"
+      for label in "${labels[@]}"; do
+        if [[ ! "$label" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]]; then
+          printf 'CRABBOX_DEPLOY_SMOKE_URLS entry has a malformed host: %s\n' "$host" >&2
+          exit 2
+        fi
+      done
+    fi
+  fi
+  host_lower="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
+  case "$host_lower" in
+    example.com | *.example.com | example.org | *.example.org | example.net | *.example.net)
+      printf 'CRABBOX_DEPLOY_SMOKE_URLS must use a real deployed host, not placeholder host: %s\n' "$host" >&2
+      exit 2
+      ;;
+  esac
+}
+
+smoke_origin() {
+  local url="$1" scheme rest authority
+  case "$url" in
+    http://*) scheme="http" ;;
+    https://*) scheme="https" ;;
+  esac
+  rest="${url#http://}"
+  rest="${rest#https://}"
+  authority="${rest%%/*}"
+  printf '%s://%s' "$scheme" "$authority"
+}
+
+IFS=',' read -r -a raw_smoke_urls <<< "${CRABBOX_DEPLOY_SMOKE_URLS:-}"
+smoke_urls=()
+smoke_origins=()
+for url in "${raw_smoke_urls[@]}"; do
+  url="${url#"${url%%[![:space:]]*}"}"
+  url="${url%"${url##*[![:space:]]}"}"
+  [[ -n "$url" ]] || continue
+  validate_smoke_url "$url"
+  smoke_urls+=("$url")
+  smoke_origins+=("$(smoke_origin "$url")")
+done
+if [[ "${#smoke_urls[@]}" -eq 0 ]]; then
+  printf 'CRABBOX_DEPLOY_SMOKE_URLS is required before deploy, e.g. https://broker.company.com/v1/health\n' >&2
+  exit 2
+fi
+
+if [[ "${CRABBOX_DEPLOY_SMOKE_AWS:-}" == "1" ]]; then
+  if [[ "${#smoke_origins[@]}" -ne 1 ]]; then
+    printf 'CRABBOX_DEPLOY_SMOKE_AWS=1 requires exactly one health URL so the coordinator is unambiguous\n' >&2
+    exit 2
+  fi
+  if [[ -n "${CRABBOX_COORDINATOR:-}" && "${CRABBOX_COORDINATOR%/}" != "${smoke_origins[0]%/}" ]]; then
+    printf 'CRABBOX_COORDINATOR must match CRABBOX_DEPLOY_SMOKE_URLS origin for AWS deploy smoke: %s != %s\n' "${CRABBOX_COORDINATOR%/}" "${smoke_origins[0]%/}" >&2
+    exit 2
+  fi
+  export CRABBOX_COORDINATOR="${smoke_origins[0]%/}"
+fi
+
 run npm --prefix "$ROOT/worker" run format:check
 run npm --prefix "$ROOT/worker" run lint
 run npm --prefix "$ROOT/worker" run check
@@ -48,11 +166,16 @@ run npm --prefix "$ROOT/worker" test
 run npm --prefix "$ROOT/worker" run build
 run npm --prefix "$ROOT/worker" run deploy
 
-for url in \
-  "https://crabbox.openclaw.ai/v1/health" \
-  "https://crabbox-coordinator.services-91b.workers.dev/v1/health"; do
-  run curl -fsS "$url"
+for url in "${smoke_urls[@]}"; do
+  printf '+ curl -fsS'
+  printf ' %q' "$url"
   printf '\n'
+  response="$(curl -fsS "$url")"
+  printf '%s\n' "$response"
+  if ! node -e 'let data="";process.stdin.on("data",c=>data+=c);process.stdin.on("end",()=>{try{const v=JSON.parse(data);if(v.ok===true&&v.service==="crabbox-coordinator")return;}catch{} process.exit(1);});' <<<"$response"; then
+    printf 'deploy smoke URL did not return Crabbox coordinator health JSON: %s\n' "$url" >&2
+    exit 1
+  fi
 done
 
 if [[ "${CRABBOX_DEPLOY_SMOKE_AWS:-}" != "1" ]]; then

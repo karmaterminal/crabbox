@@ -1,22 +1,22 @@
 # login
 
-`crabbox login` opens GitHub in the browser, waits for the coordinator callback, stores the returned broker token in the user config, and verifies identity with `GET /v1/whoami`.
+`crabbox login --url <broker-url>` opens GitHub in the browser, waits for the coordinator callback, stores the returned broker token in the user config, and verifies identity with `GET /v1/whoami`.
 
 ```sh
-crabbox login
+crabbox login --url <broker-url>
 ```
 
 If the browser cannot open automatically, print the URL and paste it manually:
 
 ```sh
-crabbox login --no-browser
+crabbox login --url <broker-url> --no-browser
 ```
 
 Trusted operator automation can still write the shared coordinator token over stdin:
 
 ```sh
 printf '%s' "$CRABBOX_COORDINATOR_TOKEN" | crabbox login \
-  --url https://crabbox.openclaw.ai \
+  --url https://broker.example.com \
   --provider aws \
   --token-stdin
 ```
@@ -33,14 +33,13 @@ Flags:
 --json                      print JSON
 ```
 
-The default broker URL is `https://crabbox.openclaw.ai`; pass `--url` for another coordinator. GitHub browser login issues a user-scoped Crabbox bearer token. `--token-stdin` stores the shared operator token and should stay limited to trusted maintainers.
+Crabbox has no built-in hosted broker URL. Pass `--url`, or configure a broker URL first. GitHub browser login issues a user-scoped Crabbox bearer token. `--token-stdin` stores the shared operator token and should stay limited to trusted maintainers.
 
 ## Self-hosted coordinators
 
-The public `https://crabbox.openclaw.ai` coordinator uses OpenClaw-owned
-GitHub OAuth credentials and only admits configured OpenClaw org or team
-members. A separate organization or private deployment needs its own
-Cloudflare Worker, Worker secrets, and GitHub OAuth app.
+Each hosted coordinator owns its GitHub OAuth credentials and admission policy.
+A separate organization or private deployment needs its own Cloudflare Worker,
+Worker secrets, and GitHub OAuth app.
 
 Configure that GitHub OAuth app with a callback URL that exactly matches the
 coordinator public URL:

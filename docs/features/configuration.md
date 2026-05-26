@@ -58,7 +58,7 @@ operators set in user config. Most repos only need a small subset.
 
 ```yaml
 broker:
-  url: https://crabbox.openclaw.ai
+  url: https://broker.example.com
   provider: aws
   token: <signed-github-token-or-shared-token>
   access:

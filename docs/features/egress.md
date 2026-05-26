@@ -116,7 +116,7 @@ Operator CLI
 Resolve lease through coordinator
     |
     +-- if local coordinator is Access-protected:
-    |       use --coordinator https://crabbox.openclaw.ai
+    |       use --coordinator https://broker.example.com
     |       so the lease can connect without private Access credentials
     |
     v

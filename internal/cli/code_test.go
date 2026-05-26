@@ -16,16 +16,16 @@ import (
 )
 
 func TestWebCodeURLs(t *testing.T) {
-	if got := webCodeAgentURL("https://crabbox.openclaw.ai", "cbx_abcdef123456"); got != "wss://crabbox.openclaw.ai/v1/leases/cbx_abcdef123456/code/agent" {
+	if got := webCodeAgentURL("https://broker.example.com", "cbx_abcdef123456"); got != "wss://broker.example.com/v1/leases/cbx_abcdef123456/code/agent" {
 		t.Fatalf("agent URL=%q", got)
 	}
-	if got := webCodeAgentURLWithTicket("https://crabbox.openclaw.ai", "cbx_abcdef123456", "code_abc"); got != "wss://crabbox.openclaw.ai/v1/leases/cbx_abcdef123456/code/agent?ticket=code_abc" {
+	if got := webCodeAgentURLWithTicket("https://broker.example.com", "cbx_abcdef123456", "code_abc"); got != "wss://broker.example.com/v1/leases/cbx_abcdef123456/code/agent?ticket=code_abc" {
 		t.Fatalf("agent fallback URL=%q", got)
 	}
-	if got := webCodePortalURL("https://crabbox.openclaw.ai/", "cbx_abcdef123456"); got != "https://crabbox.openclaw.ai/portal/leases/cbx_abcdef123456/code/" {
+	if got := webCodePortalURL("https://broker.example.com/", "cbx_abcdef123456"); got != "https://broker.example.com/portal/leases/cbx_abcdef123456/code/" {
 		t.Fatalf("portal URL=%q", got)
 	}
-	if got := webCodePortalURL("https://crabbox.openclaw.ai/", "cbx_abcdef123456", "/work/cbx/repo/worker"); got != "https://crabbox.openclaw.ai/portal/leases/cbx_abcdef123456/code/?folder=%2Fwork%2Fcbx%2Frepo%2Fworker" {
+	if got := webCodePortalURL("https://broker.example.com/", "cbx_abcdef123456", "/work/cbx/repo/worker"); got != "https://broker.example.com/portal/leases/cbx_abcdef123456/code/?folder=%2Fwork%2Fcbx%2Frepo%2Fworker" {
 		t.Fatalf("portal URL with folder=%q", got)
 	}
 }
@@ -256,7 +256,7 @@ func TestWebSocketSubprotocols(t *testing.T) {
 func TestCodeWebSocketDialHeadersRewritesOrigin(t *testing.T) {
 	headers, subprotocols := codeWebSocketDialHeaders("http://127.0.0.1:8081", map[string]string{
 		"cookie":                 "vscode-tkn=remote-token",
-		"origin":                 "https://crabbox.openclaw.ai",
+		"origin":                 "https://broker.example.com",
 		"sec-websocket-protocol": "proto-a, proto-b",
 	})
 

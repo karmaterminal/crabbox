@@ -16,8 +16,6 @@ import (
 	"time"
 )
 
-const defaultCoordinatorURL = "https://crabbox.openclaw.ai"
-
 func (a App) login(ctx context.Context, args []string) error {
 	fs := newFlagSet("login", a.Stderr)
 	brokerURL := fs.String("url", "", "broker URL")
@@ -37,7 +35,7 @@ func (a App) login(ctx context.Context, args []string) error {
 		}
 	}
 	if *brokerURL == "" {
-		*brokerURL = defaultCoordinatorURL
+		return exit(2, "crabbox login requires --url <broker-url> or a configured broker URL")
 	}
 	if *tokenStdin {
 		return a.loginWithToken(ctx, *brokerURL, *provider, *jsonOut)

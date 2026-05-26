@@ -65,14 +65,14 @@ func TestEgressCoordinatorNeedsAccess(t *testing.T) {
 
 func TestEgressStartCoordinatorOverrideUsesPublicRoute(t *testing.T) {
 	cfg := Config{
-		Coordinator: "https://crabbox-access.openclaw.ai",
+		Coordinator: "https://broker-access.example.com",
 		Access:      AccessConfig{ClientID: "client", ClientSecret: "secret", Token: "jwt"},
 	}
-	got, err := egressStartCoordinatorConfig(cfg, "https://crabbox.openclaw.ai/")
+	got, err := egressStartCoordinatorConfig(cfg, "https://broker.example.com/")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Coordinator != "https://crabbox.openclaw.ai" {
+	if got.Coordinator != "https://broker.example.com" {
 		t.Fatalf("coordinator=%q", got.Coordinator)
 	}
 	if egressCoordinatorNeedsAccess(got.Access) {
@@ -202,19 +202,19 @@ func TestEgressRequestHostPort(t *testing.T) {
 }
 
 func TestEgressAgentURL(t *testing.T) {
-	got := egressAgentURL("https://crabbox.openclaw.ai", "cbx_abcdef123456", "host", "egress_abc")
-	want := "wss://crabbox.openclaw.ai/v1/leases/cbx_abcdef123456/egress/host?ticket=egress_abc"
+	got := egressAgentURL("https://broker.example.com", "cbx_abcdef123456", "host", "egress_abc")
+	want := "wss://broker.example.com/v1/leases/cbx_abcdef123456/egress/host?ticket=egress_abc"
 	if got != want {
 		t.Fatalf("egressAgentURL=%q want %q", got, want)
 	}
 }
 
 func TestRemoteEgressClientCommandRedactsThroughShellQuoting(t *testing.T) {
-	got := remoteEgressClientCommand("https://crabbox.openclaw.ai", "cbx_abcdef123456", "egress_ticket", "egress_session", "127.0.0.1:3128")
+	got := remoteEgressClientCommand("https://broker.example.com", "cbx_abcdef123456", "egress_ticket", "egress_session", "127.0.0.1:3128")
 	for _, want := range []string{
 		"pkill -f '[c]rabbox-egress-client egress client'",
 		"'/tmp/crabbox-egress-client' 'egress' 'client'",
-		"'--coordinator' 'https://crabbox.openclaw.ai'",
+		"'--coordinator' 'https://broker.example.com'",
 		"'--ticket' 'egress_ticket'",
 		">'/tmp/crabbox-egress-client.log' 2>&1",
 	} {

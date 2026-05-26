@@ -279,8 +279,8 @@ func TestGitHubLoginMigratesToCanonicalRedirectOrigin(t *testing.T) {
 }
 
 func TestCanonicalBrokerURLFromLoginURL(t *testing.T) {
-	got, ok := canonicalBrokerURLFromLoginURL("https://github.com/login/oauth/authorize?redirect_uri=https%3A%2F%2Fcrabbox.openclaw.ai%2Fv1%2Fauth%2Fgithub%2Fcallback&state=x")
-	if !ok || got != "https://crabbox.openclaw.ai" {
+	got, ok := canonicalBrokerURLFromLoginURL("https://github.com/login/oauth/authorize?redirect_uri=https%3A%2F%2Fbroker.example.com%2Fv1%2Fauth%2Fgithub%2Fcallback&state=x")
+	if !ok || got != "https://broker.example.com" {
 		t.Fatalf("canonical=%q ok=%v", got, ok)
 	}
 }

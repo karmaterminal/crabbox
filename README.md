@@ -91,17 +91,16 @@ Prerequisites on the laptop: `git`, `ssh`, `ssh-keygen`, `rsync`, `curl`.
 
 ## Quick start
 
-The hosted broker at `https://crabbox.openclaw.ai` is restricted to the
-configured GitHub org/team. If `crabbox login` completes GitHub OAuth and then
-returns an org-membership error, use direct-provider mode for a personal cloud
-account or self-host the Worker broker with your own provider credentials and
-spend caps. See [Getting started](docs/getting-started.md#hosted-broker-access)
-and [Infrastructure](docs/infrastructure.md#self-hosted-broker-minimum) for the
+Broker access is deployment-specific. Use a coordinator URL from your team, use
+direct-provider mode for a personal cloud account, or self-host the Worker
+broker with your own provider credentials and spend caps. See [Getting
+started](docs/getting-started.md#broker-access) and
+[Infrastructure](docs/infrastructure.md#self-hosted-broker-minimum) for the
 setup paths.
 
 ```sh
 # log in once per machine (stores a broker token in user config)
-crabbox login
+crabbox login --url https://broker.example.com
 
 # verify local prerequisites and broker reachability
 crabbox doctor
@@ -133,7 +132,7 @@ crabbox CLI    -- HTTPS --> Fleet Durable Object  -->   Hetzner / AWS / Azure / 
 ```
 
 - **CLI** — Go binary. Loads config, mints a per-lease SSH key, asks the broker for a lease, waits for SSH, seeds remote Git, rsyncs the dirty checkout (with fingerprint skip when nothing changed), runs the command, streams output, releases.
-- **Broker** — Cloudflare Worker at `crabbox.openclaw.ai` plus a single Durable Object. Owns provider credentials, serializes lease state, enforces active-lease and monthly spend caps, and expires stale leases by alarm. Auth is GitHub login or a shared bearer token.
+- **Broker** — Cloudflare Worker plus a single Durable Object. Owns provider credentials, serializes lease state, enforces active-lease and monthly spend caps, and expires stale leases by alarm. Auth is GitHub login or a shared bearer token.
 - **Runner** — a throwaway SSH machine prepared with SSH on the primary port, default `2222`, plus configured fallback ports and Crabbox's sync/run prerequisites. Linux uses Ubuntu with cloud-init and `/work/crabbox`; native Windows uses OpenSSH, Git for Windows, and `C:\crabbox`. No broker credentials live on the box. Project runtimes (Go, Node, Docker, services, secrets) come from your repo's GitHub Actions hydration, devcontainer, Nix, mise/asdf, or setup scripts — not from Crabbox.
 
 A direct-provider mode (`--provider hetzner|aws|azure|gcp|proxmox` with local credentials) exists for debugging the broker itself or using private infrastructure; the brokered path is the default where supported.
@@ -239,7 +238,7 @@ Config resolves in order: flags → env → repo `.crabbox.yaml` → user `~/.co
 
 ```yaml
 broker:
-  url: https://crabbox.openclaw.ai
+  url: https://broker.example.com
   provider: aws
   token: ...
 class: beast

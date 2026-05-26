@@ -197,7 +197,7 @@ func (a App) egressStart(ctx context.Context, args []string) error {
 		return err
 	}
 	if !useCoordinator || coord == nil || coord.Token == "" {
-		return exit(2, "egress start requires a configured coordinator login; run crabbox login first")
+		return exit(2, "egress start requires a configured coordinator login; run crabbox login --url <broker-url> first")
 	}
 	server, target, leaseID, err := a.resolveNetworkLeaseTarget(ctx, cfg, *id, false)
 	if err != nil {
@@ -326,7 +326,7 @@ func (a App) egressCoordinatorAndLease(ctx context.Context, provider, coordinato
 		return coord, id, nil
 	}
 	if coord.Token == "" {
-		return nil, "", exit(2, "egress requires a configured coordinator login; run crabbox login first")
+		return nil, "", exit(2, "egress requires a configured coordinator login; run crabbox login --url <broker-url> first")
 	}
 	lease, err := coord.GetLease(ctx, id)
 	if err != nil {
