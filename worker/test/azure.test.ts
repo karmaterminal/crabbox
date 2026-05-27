@@ -108,11 +108,11 @@ describe("azure provider", () => {
   it("orders Azure region candidates from defaults, env, and capacity regions", () => {
     expect(
       azureRegionCandidates(
-        { azureLocation: "eastus", capacityRegions: ["westeurope", "eastus"] },
+        { azureLocation: "westeurope", capacityRegions: ["northeurope", "westeurope"] },
         { CRABBOX_AZURE_LOCATION: "centralus", CRABBOX_AZURE_REGIONS: "northeurope,westeurope" },
         "eastus",
       ),
-    ).toEqual(["eastus", "centralus", "northeurope", "westeurope"]);
+    ).toEqual(["westeurope", "centralus", "eastus", "northeurope"]);
     expect(azureRegionalName("crabbox-vnet", "West Europe")).toBe("crabbox-vnet-west-europe");
     expect(azureRegionalName("crabbox-vnet-westeurope", "westeurope")).toBe(
       "crabbox-vnet-westeurope",

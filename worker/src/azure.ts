@@ -1223,15 +1223,13 @@ export function azureRegionCandidates(
   preferredLocation = "eastus",
 ): string[] {
   return uniqueStrings(
-    prependUnique(
+    [
+      config.azureLocation,
+      env.CRABBOX_AZURE_LOCATION ?? "",
       preferredLocation,
-      [
-        config.azureLocation,
-        env.CRABBOX_AZURE_LOCATION ?? "",
-        ...splitCommaList(env.CRABBOX_AZURE_REGIONS ?? ""),
-        ...config.capacityRegions,
-      ].filter(Boolean),
-    ),
+      ...splitCommaList(env.CRABBOX_AZURE_REGIONS ?? ""),
+      ...config.capacityRegions,
+    ].filter(Boolean),
   );
 }
 

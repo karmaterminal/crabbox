@@ -552,7 +552,7 @@ func (c *AzureClient) createServerWithFallbackInLocation(ctx context.Context, cf
 }
 
 func azureRegionCandidates(cfg Config, preferredLocation string) []string {
-	return appendUniqueStrings([]string{preferredLocation, cfg.AzureLocation}, cfg.Capacity.Regions...)
+	return appendUniqueStrings([]string{cfg.AzureLocation, preferredLocation}, cfg.Capacity.Regions...)
 }
 
 func azureConfigForLocation(cfg Config, location string, multiRegion bool) Config {

@@ -153,6 +153,12 @@ func TestAzureRegionCandidates(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
+	cfg.AzureLocation = "westeurope"
+	got = azureRegionCandidates(cfg, "eastus")
+	want = []string{"westeurope", "eastus"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("override got %v, want %v", got, want)
+	}
 	if got := azureRegionalName("crabbox-vnet", "West Europe"); got != "crabbox-vnet-west-europe" {
 		t.Fatalf("regional name=%q", got)
 	}
