@@ -410,8 +410,16 @@ async function requireAllowedTeamMembership(
 
 function allowedGitHubOrgs(env: Env): string[] {
   const raw = env.CRABBOX_GITHUB_ALLOWED_ORGS || env.CRABBOX_GITHUB_ALLOWED_ORG;
-  const values = raw ? raw.split(",") : [env.CRABBOX_DEFAULT_ORG || ""];
-  return values.map((value) => value.trim().toLowerCase()).filter(Boolean);
+  const configured = raw
+    ? raw
+        .split(",")
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean)
+    : [];
+  if (configured.length > 0) {
+    return configured;
+  }
+  return [(env.CRABBOX_DEFAULT_ORG || "").trim().toLowerCase()].filter(Boolean);
 }
 
 function allowedGitHubTeams(env: Env, defaultOrg: string): AllowedGitHubTeam[] {

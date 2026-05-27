@@ -6100,6 +6100,34 @@ describe("fleet identity", () => {
     expect(body.token).toMatch(/^cbxu_/);
   });
 
+  it("falls back to the default org when allowed org config is empty", async () => {
+    const { fleet, loginID, state, pollSecret } = await startGitHubLogin({
+      CRABBOX_DEFAULT_ORG: "example-org",
+      CRABBOX_GITHUB_ALLOWED_ORG: " , ",
+    });
+    vi.stubGlobal("fetch", githubFetchMock({ member: true, org: "example-org" }));
+
+    const callback = await fleet.fetch(
+      request("GET", `/v1/auth/github/callback?code=ok&state=${state}`),
+    );
+    expect(callback.status).toBe(200);
+
+    const poll = await fleet.fetch(
+      request("POST", "/v1/auth/github/poll", {
+        body: {
+          loginID,
+          pollSecret,
+        },
+      }),
+    );
+    expect(poll.status).toBe(200);
+    await expect(poll.json()).resolves.toMatchObject({
+      status: "complete",
+      org: "example-org",
+      login: "friend",
+    });
+  });
+
   it("requires configured GitHub team membership before completing login", async () => {
     const { fleet, loginID, state, pollSecret } = await startGitHubLogin({
       CRABBOX_GITHUB_ALLOWED_TEAMS: "maintainers",
@@ -6305,9 +6333,11 @@ async function startGitHubLogin(env: Partial<Env> = {}): Promise<{
 
 function githubFetchMock({
   member,
+  org = "openclaw",
   teams = [],
 }: {
   member: boolean;
+  org?: string;
   teams?: Array<{ slug: string; organization: { login: string } }>;
 }) {
   return vi.fn<(input: RequestInfo | URL) => Promise<Response>>(async (input) => {
@@ -6322,9 +6352,9 @@ function githubFetchMock({
     if (url === "https://api.github.com/user/emails") {
       return jsonResponse([{ email: "friend@example.com", primary: true, verified: true }]);
     }
-    if (url === "https://api.github.com/user/memberships/orgs/openclaw") {
+    if (url === `https://api.github.com/user/memberships/orgs/${encodeURIComponent(org)}`) {
       return member
-        ? jsonResponse({ state: "active", organization: { login: "openclaw" } })
+        ? jsonResponse({ state: "active", organization: { login: org } })
         : jsonResponse({ message: "Not Found" }, 404);
     }
     if (url === "https://api.github.com/user/teams?per_page=100&page=1") {
