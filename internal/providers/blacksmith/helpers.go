@@ -168,15 +168,33 @@ func blacksmithBaseArgs(cfg Config) []string {
 }
 
 func blacksmithWorkflow(cfg Config) string {
-	return blank(cfg.Blacksmith.Workflow, cfg.Actions.Workflow)
+	if cfg.Blacksmith.Workflow != "" {
+		return cfg.Blacksmith.Workflow
+	}
+	if strings.Contains(strings.ToLower(cfg.Actions.Workflow), "testbox") {
+		return cfg.Actions.Workflow
+	}
+	return ""
 }
 
 func blacksmithJob(cfg Config) string {
-	return blank(cfg.Blacksmith.Job, cfg.Actions.Job)
+	if cfg.Blacksmith.Job != "" {
+		return cfg.Blacksmith.Job
+	}
+	if cfg.Blacksmith.Workflow == "" && strings.Contains(strings.ToLower(cfg.Actions.Workflow), "testbox") {
+		return cfg.Actions.Job
+	}
+	return ""
 }
 
 func blacksmithRef(cfg Config) string {
-	return blank(cfg.Blacksmith.Ref, cfg.Actions.Ref)
+	if cfg.Blacksmith.Ref != "" {
+		return cfg.Blacksmith.Ref
+	}
+	if cfg.Blacksmith.Workflow == "" && strings.Contains(strings.ToLower(cfg.Actions.Workflow), "testbox") {
+		return cfg.Actions.Ref
+	}
+	return ""
 }
 
 func blacksmithIdleTimeout(cfg Config) time.Duration {

@@ -1709,6 +1709,9 @@ func commandSegmentRuntimePreflightTool(words []string) (tool string, skip bool)
 		return "", true
 	}
 	base := commandBase(first)
+	if commandRunsForeignShell(base) {
+		return "", true
+	}
 	if commandSegmentSetsPath(base, words[1:]) {
 		return "", true
 	}
@@ -1725,6 +1728,14 @@ func commandSegmentRuntimePreflightTool(words []string) (tool string, skip bool)
 		return "", true
 	}
 	return "", false
+}
+
+func commandRunsForeignShell(base string) bool {
+	switch strings.ToLower(base) {
+	case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
+		return true
+	}
+	return false
 }
 
 func runEnvProvidesPath(env map[string]string, target SSHTarget) bool {

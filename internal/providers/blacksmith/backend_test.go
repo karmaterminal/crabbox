@@ -79,19 +79,30 @@ func TestBlacksmithWarmupArgs(t *testing.T) {
 	}
 }
 
-func TestBlacksmithWarmupArgsFallsBackToActionsConfig(t *testing.T) {
+func TestBlacksmithWarmupArgsFallsBackToTestboxActionsConfig(t *testing.T) {
 	cfg := baseConfig()
-	cfg.Actions.Workflow = ".github/workflows/ci.yml"
-	cfg.Actions.Job = "hydrate"
+	cfg.Actions.Workflow = ".github/workflows/ci-check-testbox.yml"
+	cfg.Actions.Job = "check"
 	cfg.Actions.Ref = "trunk"
 	got, err := blacksmithWarmupArgs(cfg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{".github/workflows/ci.yml", "--job", "hydrate", "--ref", "trunk"} {
+	for _, want := range []string{".github/workflows/ci-check-testbox.yml", "--job", "check", "--ref", "trunk"} {
 		if !containsString(got, want) {
 			t.Fatalf("args missing %q: %#v", want, got)
 		}
+	}
+}
+
+func TestBlacksmithWarmupArgsDoesNotUseGenericActionsHydrateWorkflow(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Actions.Workflow = ".github/workflows/crabbox-hydrate.yml"
+	cfg.Actions.Job = "hydrate"
+	cfg.Actions.Ref = "main"
+	_, err := blacksmithWarmupArgs(cfg, "")
+	if err == nil || !strings.Contains(err.Error(), "requires blacksmith.workflow") {
+		t.Fatalf("expected workflow error, got %v", err)
 	}
 }
 
