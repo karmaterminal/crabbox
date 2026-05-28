@@ -30,6 +30,11 @@ func TestClaimLeaseForRepoConfigScopesProviderClaims(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := filepath.Join(t.TempDir(), "repo")
 	cfg := Config{Provider: "ssh"}
+	cfg.Static.Host = "mac-mini.local"
+	cfg.Static.User = "agent"
+	cfg.Static.Port = "2222"
+	cfg.Static.WorkRoot = "/work/crabbox"
+	cfg.TargetOS = targetMacOS
 	if err := claimLeaseForRepoConfig("cbx_static", "mac-mini", cfg, repo, 10*time.Minute, false); err != nil {
 		t.Fatal(err)
 	}
@@ -39,6 +44,26 @@ func TestClaimLeaseForRepoConfigScopesProviderClaims(t *testing.T) {
 	}
 	if claim.Provider != staticProvider {
 		t.Fatalf("provider=%q want %q", claim.Provider, staticProvider)
+	}
+	if claim.StaticHost != "mac-mini.local" {
+		t.Fatalf("staticHost=%q want mac-mini.local", claim.StaticHost)
+	}
+	if claim.StaticUser != "agent" || claim.StaticPort != "2222" || claim.StaticWorkRoot != "/work/crabbox" || claim.TargetOS != targetMacOS {
+		t.Fatalf("static claim details not stored: %#v", claim)
+	}
+
+	cfg.Static.User = ""
+	cfg.Static.Port = ""
+	cfg.Static.WorkRoot = ""
+	if err := claimLeaseForRepoConfig("cbx_static", "mac-mini", cfg, repo, 10*time.Minute, false); err != nil {
+		t.Fatal(err)
+	}
+	claim, err = readLeaseClaim("cbx_static")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claim.StaticUser != "" || claim.StaticPort != "" || claim.StaticWorkRoot != "" {
+		t.Fatalf("static claim details should be cleared on update: %#v", claim)
 	}
 
 	cfg.Provider = "aws"

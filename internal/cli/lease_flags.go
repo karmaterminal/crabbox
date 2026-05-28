@@ -60,6 +60,9 @@ func applyLeaseCreateFlagsForLease(cfg *Config, fs *flag.FlagSet, values leaseCr
 	if err := applyTargetFlagOverrides(cfg, fs, values.Target); err != nil {
 		return err
 	}
+	if err := autoRouteStaticLease(cfg, fs, existingLeaseID); err != nil {
+		return err
+	}
 	if flagWasSet(fs, "os") {
 		osImage, err := normalizeOSImage(*values.OSImage)
 		if err != nil {
@@ -112,6 +115,11 @@ func validateLeaseDurations(cfg Config) error {
 
 type leaseTargetConfigOptions struct {
 	Desktop bool
+	// LeaseID is the resolved lease id/slug from the command's --id flag (or
+	// equivalent positional). When set, `static_<host>` ids auto-route to the
+	// ssh provider so callers don't have to re-pass --provider / --static-host
+	// that warmup already implied.
+	LeaseID string
 }
 
 func loadLeaseTargetConfig(fs *flag.FlagSet, provider string, targetFlags targetFlagValues, networkFlags networkModeFlagValues, opts leaseTargetConfigOptions) (Config, error) {
@@ -124,6 +132,9 @@ func loadLeaseTargetConfig(fs *flag.FlagSet, provider string, targetFlags target
 		cfg.Desktop = true
 	}
 	if err := applyTargetFlagOverrides(&cfg, fs, targetFlags); err != nil {
+		return Config{}, err
+	}
+	if err := autoRouteStaticLease(&cfg, fs, opts.LeaseID); err != nil {
 		return Config{}, err
 	}
 	if err := applyNetworkModeFlagOverride(&cfg, fs, networkFlags); err != nil {

@@ -138,7 +138,7 @@ func (a App) artifactsCollect(ctx context.Context, args []string) error {
 		*contactSheet = false
 	}
 	needsDesktop := artifactCollectNeedsDesktop(*screenshot, *video, *doctor, *webvncStatus)
-	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{Desktop: needsDesktop})
+	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *id, Desktop: needsDesktop})
 	if err != nil {
 		return err
 	}

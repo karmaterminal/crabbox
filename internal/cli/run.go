@@ -1507,7 +1507,9 @@ func runStopCommand(cfg Config, id string) string {
 		args = append(args, "--static-work-root", cfg.Static.WorkRoot)
 	}
 	args = appendProviderStopRoutingArgs(args, cfg)
-	args = append(args, id)
+	if strings.TrimSpace(id) != "" {
+		args = append(args, "--id", id)
+	}
 	return strings.Join(readableShellWords(args), " ")
 }
 
@@ -2428,13 +2430,16 @@ func (a App) stop(ctx context.Context, args []string) error {
 	defaults := defaultConfig()
 	fs := newFlagSet("stop", a.Stderr)
 	provider := fs.String("provider", defaults.Provider, providerHelpAll())
+	id := fs.String("id", "", "lease id or slug")
 	providerFlags := registerProviderFlags(fs, defaults)
 	targetFlags := registerTargetFlags(fs, defaults)
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
-		return exit(2, "usage: crabbox stop <lease-or-server-id>")
+	idFlagSet := flagWasSet(fs, "id")
+	setIDFromFirstArg(fs, id)
+	if strings.TrimSpace(*id) == "" || fs.NArg() > 1 || (idFlagSet && fs.NArg() > 0) {
+		return exit(2, "usage: crabbox stop --id <lease-or-server-id>")
 	}
 	cfg, err := loadConfig()
 	if err != nil {
@@ -2447,22 +2452,25 @@ func (a App) stop(ctx context.Context, args []string) error {
 	if err := applyTargetFlagOverrides(&cfg, fs, targetFlags); err != nil {
 		return err
 	}
+	if err := autoRouteStaticLease(&cfg, fs, *id); err != nil {
+		return err
+	}
 	backend, err := loadBackend(cfg, runtimeForApp(a))
 	if err != nil {
 		return err
 	}
 	if delegated, ok := backend.(DelegatedRunBackend); ok {
-		return delegated.Stop(ctx, StopRequest{Options: leaseOptionsFromConfig(cfg), ID: fs.Arg(0)})
+		return delegated.Stop(ctx, StopRequest{Options: leaseOptionsFromConfig(cfg), ID: *id})
 	}
 	sshBackend, ok := backend.(SSHLeaseBackend)
 	if !ok {
 		return exit(2, "provider=%s does not support stop", backend.Spec().Name)
 	}
-	lease, err := sshBackend.Resolve(ctx, ResolveRequest{Options: leaseOptionsFromConfig(cfg), ID: fs.Arg(0), ReleaseOnly: true})
+	lease, err := sshBackend.Resolve(ctx, ResolveRequest{Options: leaseOptionsFromConfig(cfg), ID: *id, ReleaseOnly: true})
 	if err != nil {
 		if backendCoordinator(backend) != nil {
 			fmt.Fprintf(a.Stderr, "warning: could not inspect lease before release: %v\n", err)
-			lease = LeaseTarget{LeaseID: fs.Arg(0)}
+			lease = LeaseTarget{LeaseID: *id}
 		} else {
 			return err
 		}

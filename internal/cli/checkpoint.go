@@ -144,7 +144,7 @@ func (a App) checkpointCreate(ctx context.Context, args []string) (err error) {
 		return exit(2, "checkpoint strategy must be auto, disk-snapshot, or image")
 	}
 	setIDFromFirstArg(fs, id)
-	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{})
+	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *id})
 	if err != nil {
 		return err
 	}
@@ -280,7 +280,7 @@ func (a App) checkpointList(ctx context.Context, args []string) error {
 	}
 	setIDFromFirstArg(fs, id)
 	if strings.TrimSpace(*id) != "" || flagWasSet(fs, "provider") || flagWasSet(fs, "parallels-template") {
-		cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{})
+		cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *id})
 		if err != nil {
 			return err
 		}
@@ -568,7 +568,7 @@ func (a App) checkpointRestore(ctx context.Context, args []string) error {
 		if fs.NArg() != 0 {
 			return exit(2, "usage: crabbox checkpoint restore --provider parallels --id <vm-or-lease> --snapshot <name-or-id>")
 		}
-		cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{})
+		cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *id})
 		if err != nil {
 			return err
 		}
@@ -616,7 +616,7 @@ func (a App) checkpointRestore(ctx context.Context, args []string) error {
 	if record.Kind != checkpointKindArchive {
 		if isNativeCheckpointKind(record.Kind) {
 			if record.Kind == checkpointKindParallels {
-				cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{})
+				cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *id})
 				if err != nil {
 					return err
 				}
@@ -644,7 +644,7 @@ func (a App) checkpointRestore(ctx context.Context, args []string) error {
 		}
 		return exit(2, "checkpoint %s has kind=%s; restore requires %s", record.ID, record.Kind, checkpointKindArchive)
 	}
-	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{})
+	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *id})
 	if err != nil {
 		return err
 	}
@@ -897,7 +897,7 @@ func (a App) checkpointDelete(ctx context.Context, args []string) error {
 		if *localOnly {
 			return exit(2, "--local-only applies only to recorded checkpoints")
 		}
-		cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{})
+		cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *sourceID})
 		if err != nil {
 			return err
 		}

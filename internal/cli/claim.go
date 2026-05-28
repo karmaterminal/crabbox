@@ -14,6 +14,12 @@ type leaseClaim struct {
 	Slug               string `json:"slug,omitempty"`
 	Provider           string `json:"provider,omitempty"`
 	ProviderScope      string `json:"providerScope,omitempty"`
+	StaticHost         string `json:"staticHost,omitempty"`
+	StaticUser         string `json:"staticUser,omitempty"`
+	StaticPort         string `json:"staticPort,omitempty"`
+	StaticWorkRoot     string `json:"staticWorkRoot,omitempty"`
+	TargetOS           string `json:"targetOS,omitempty"`
+	WindowsMode        string `json:"windowsMode,omitempty"`
 	RepoRoot           string `json:"repoRoot"`
 	ClaimedAt          string `json:"claimedAt"`
 	LastUsedAt         string `json:"lastUsedAt"`
@@ -26,7 +32,19 @@ func claimLeaseForRepo(leaseID, slug, repoRoot string, idleTimeout time.Duration
 
 func claimLeaseForRepoConfig(leaseID, slug string, cfg Config, repoRoot string, idleTimeout time.Duration, reclaim bool) error {
 	provider := canonicalClaimProvider(cfg.Provider)
-	return claimLeaseForRepoProviderScope(leaseID, slug, provider, providerClaimScope(provider, cfg), repoRoot, idleTimeout, reclaim)
+	staticDetails := staticClaimDetails{}
+	if isStaticProvider(provider) {
+		staticDetails = staticClaimDetails{
+			Present:     true,
+			Host:        strings.TrimSpace(cfg.Static.Host),
+			User:        strings.TrimSpace(cfg.Static.User),
+			Port:        strings.TrimSpace(cfg.Static.Port),
+			WorkRoot:    strings.TrimSpace(cfg.Static.WorkRoot),
+			TargetOS:    strings.TrimSpace(cfg.TargetOS),
+			WindowsMode: strings.TrimSpace(cfg.WindowsMode),
+		}
+	}
+	return claimLeaseForRepoProviderScopeDetails(leaseID, slug, provider, providerClaimScope(provider, cfg), staticDetails, repoRoot, idleTimeout, reclaim)
 }
 
 func claimLeaseForRepoProvider(leaseID, slug, provider, repoRoot string, idleTimeout time.Duration, reclaim bool) error {
@@ -34,6 +52,20 @@ func claimLeaseForRepoProvider(leaseID, slug, provider, repoRoot string, idleTim
 }
 
 func claimLeaseForRepoProviderScope(leaseID, slug, provider, providerScope, repoRoot string, idleTimeout time.Duration, reclaim bool) error {
+	return claimLeaseForRepoProviderScopeDetails(leaseID, slug, provider, providerScope, staticClaimDetails{}, repoRoot, idleTimeout, reclaim)
+}
+
+type staticClaimDetails struct {
+	Present     bool
+	Host        string
+	User        string
+	Port        string
+	WorkRoot    string
+	TargetOS    string
+	WindowsMode string
+}
+
+func claimLeaseForRepoProviderScopeDetails(leaseID, slug, provider, providerScope string, staticDetails staticClaimDetails, repoRoot string, idleTimeout time.Duration, reclaim bool) error {
 	if leaseID == "" || repoRoot == "" {
 		return nil
 	}
@@ -59,6 +91,21 @@ func claimLeaseForRepoProviderScope(leaseID, slug, provider, providerScope, repo
 	}
 	if providerScope != "" {
 		existing.ProviderScope = providerScope
+	}
+	if staticDetails.Present {
+		existing.StaticHost = staticDetails.Host
+		existing.StaticUser = staticDetails.User
+		existing.StaticPort = staticDetails.Port
+		existing.StaticWorkRoot = staticDetails.WorkRoot
+		existing.TargetOS = staticDetails.TargetOS
+		existing.WindowsMode = staticDetails.WindowsMode
+	} else if provider != "" && !isStaticProvider(provider) {
+		existing.StaticHost = ""
+		existing.StaticUser = ""
+		existing.StaticPort = ""
+		existing.StaticWorkRoot = ""
+		existing.TargetOS = ""
+		existing.WindowsMode = ""
 	}
 	existing.RepoRoot = repoRoot
 	existing.LastUsedAt = now

@@ -81,7 +81,7 @@ func (a App) webvnc(ctx context.Context, args []string) error {
 	if *daemon || *background {
 		return a.webVNCDaemonStart(ctx, stripLegacyWebVNCDaemonFlags(args))
 	}
-	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{Desktop: true})
+	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *id, Desktop: true})
 	if err != nil {
 		return err
 	}
@@ -335,7 +335,7 @@ func (a App) webVNCDaemonStart(ctx context.Context, args []string) error {
 	if *id == "" {
 		return exit(2, "usage: crabbox webvnc daemon start --id <lease-id-or-slug>")
 	}
-	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{Desktop: true})
+	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *id, Desktop: true})
 	if err != nil {
 		return err
 	}
@@ -418,7 +418,7 @@ func (a App) webVNCStatusCommand(ctx context.Context, args []string) error {
 	if *id == "" {
 		return exit(2, "usage: crabbox webvnc status --id <lease-id-or-slug>")
 	}
-	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{Desktop: true})
+	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *id, Desktop: true})
 	if err != nil {
 		return err
 	}
@@ -533,7 +533,7 @@ func (a App) webVNCResetCommand(ctx context.Context, args []string) error {
 	if *id == "" {
 		return exit(2, "usage: crabbox webvnc reset --id <lease-id-or-slug>")
 	}
-	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{Desktop: true})
+	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *id, Desktop: true})
 	if err != nil {
 		return err
 	}

@@ -77,7 +77,7 @@ func (a App) actionsHydrate(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
-	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{})
+	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *leaseIDFlag})
 	if err != nil {
 		return err
 	}
@@ -238,7 +238,7 @@ func (a App) actionsRegister(ctx context.Context, args []string) error {
 	if *leaseIDFlag == "" {
 		return exit(2, "actions register requires --id")
 	}
-	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{})
+	cfg, err := loadLeaseTargetConfig(fs, *provider, targetFlags, networkFlags, leaseTargetConfigOptions{LeaseID: *leaseIDFlag})
 	if err != nil {
 		return err
 	}

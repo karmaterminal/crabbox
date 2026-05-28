@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"flag"
 	"path"
 	"strings"
 )
@@ -193,6 +194,64 @@ func isStaticProvider(provider string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// staticLeaseIDPrefix is the prefix `staticLease` stamps on lease IDs it
+// synthesises from a static SSH host.
+const staticLeaseIDPrefix = "static_"
+
+// autoRouteStaticLease infers `--provider ssh` from a `static_<slug>` lease ID
+// and restores the original static host from the local claim when the caller
+// did not already pass --static-host.
+func autoRouteStaticLease(cfg *Config, fs *flag.FlagSet, id string) error {
+	suffix, ok := strings.CutPrefix(strings.TrimSpace(id), staticLeaseIDPrefix)
+	if !ok || suffix == "" {
+		return nil
+	}
+	if !flagWasSet(fs, "provider") {
+		cfg.Provider = staticProvider
+	}
+	if !isStaticProvider(cfg.Provider) {
+		return nil
+	}
+	claim, ok, err := staticLeaseClaim(id)
+	if err != nil {
+		return err
+	}
+	if ok {
+		restoreStaticClaimTarget(cfg, fs, claim)
+	}
+	normalizeTargetConfig(cfg)
+	return validateTargetConfig(*cfg)
+}
+
+func staticLeaseClaim(id string) (leaseClaim, bool, error) {
+	claim, ok, err := resolveLeaseClaim(id)
+	if err != nil || !ok || !isStaticProvider(claim.Provider) {
+		return leaseClaim{}, false, err
+	}
+	return claim, true, nil
+}
+
+func restoreStaticClaimTarget(cfg *Config, fs *flag.FlagSet, claim leaseClaim) {
+	if !flagWasSet(fs, "static-host") && strings.TrimSpace(claim.StaticHost) != "" {
+		cfg.Static.Host = strings.TrimSpace(claim.StaticHost)
+	}
+	if !flagWasSet(fs, "static-user") && strings.TrimSpace(claim.StaticUser) != "" {
+		cfg.Static.User = strings.TrimSpace(claim.StaticUser)
+	}
+	if !flagWasSet(fs, "static-port") && strings.TrimSpace(claim.StaticPort) != "" {
+		cfg.Static.Port = strings.TrimSpace(claim.StaticPort)
+	}
+	if !flagWasSet(fs, "static-work-root") && strings.TrimSpace(claim.StaticWorkRoot) != "" {
+		cfg.Static.WorkRoot = strings.TrimSpace(claim.StaticWorkRoot)
+	}
+	if !flagWasSet(fs, "target") && strings.TrimSpace(claim.TargetOS) != "" {
+		cfg.TargetOS = strings.TrimSpace(claim.TargetOS)
+	}
+	if !flagWasSet(fs, "windows-mode") && strings.TrimSpace(claim.WindowsMode) != "" {
+		cfg.WindowsMode = strings.TrimSpace(claim.WindowsMode)
 	}
 }
 
