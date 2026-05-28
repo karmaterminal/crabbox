@@ -112,13 +112,19 @@ func TestBlacksmithWarmupArgsFallsBackToArbitraryActionsWorkflowName(t *testing.
 }
 
 func TestBlacksmithWarmupArgsDoesNotUseGenericActionsHydrateWorkflow(t *testing.T) {
-	cfg := baseConfig()
-	cfg.Actions.Workflow = ".github/workflows/crabbox-hydrate.yml"
-	cfg.Actions.Job = "hydrate"
-	cfg.Actions.Ref = "main"
-	_, err := blacksmithWarmupArgs(cfg, "")
-	if err == nil || !strings.Contains(err.Error(), "requires blacksmith.workflow") {
-		t.Fatalf("expected workflow error, got %v", err)
+	for _, workflow := range []string{
+		".github/workflows/crabbox.yml",
+		".github/workflows/crabbox-hydrate.yml",
+		".github/workflows/hydrate.yml",
+	} {
+		cfg := baseConfig()
+		cfg.Actions.Workflow = workflow
+		cfg.Actions.Job = "hydrate"
+		cfg.Actions.Ref = "main"
+		_, err := blacksmithWarmupArgs(cfg, "")
+		if err == nil || !strings.Contains(err.Error(), "requires blacksmith.workflow") {
+			t.Fatalf("expected workflow error for %s, got %v", workflow, err)
+		}
 	}
 }
 
