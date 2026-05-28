@@ -10,6 +10,7 @@ func TestAllBuiltInProvidersExposeDoctor(t *testing.T) {
 	providers := []string{
 		"aws",
 		"azure",
+		"azure-dynamic-sessions",
 		"blacksmith-testbox",
 		"cloudflare",
 		"daytona",

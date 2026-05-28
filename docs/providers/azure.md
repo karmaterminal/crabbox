@@ -31,6 +31,7 @@ Azure service principal configured on the Worker.
 
 ```sh
 crabbox warmup --provider azure --class beast
+crabbox run --provider azure --azure-backend dynamic-sessions -- pnpm test
 crabbox warmup --provider azure --class beast --azure-os-disk ephemeral
 crabbox run --provider azure --class standard -- pnpm test
 crabbox warmup --provider azure --target windows --class standard
@@ -54,6 +55,7 @@ provider: azure
 target: linux
 class: beast
 azure:
+  backend: vm
   subscriptionId: 00000000-0000-0000-0000-000000000000
   tenantId: 00000000-0000-0000-0000-000000000000
   clientId: 00000000-0000-0000-0000-000000000000
@@ -72,6 +74,13 @@ azure:
 from environment variables. The client secret is never read from config; it
 must come from the environment.
 
+`azure.backend` selects the Azure family backend. `vm` is the default and uses
+Azure Virtual Machines with SSH leases. `dynamic-sessions` routes to the
+canonical `azure-dynamic-sessions` provider for delegated Linux runs inside an
+Azure Container Apps Dynamic Sessions pool. The CLI equivalent is
+`--azure-backend dynamic-sessions`; `CRABBOX_AZURE_BACKEND` accepts the same
+values.
+
 Important direct-mode environment:
 
 ```text
@@ -82,6 +91,7 @@ AZURE_CLIENT_SECRET
 CRABBOX_AZURE_SUBSCRIPTION_ID
 CRABBOX_AZURE_TENANT_ID
 CRABBOX_AZURE_CLIENT_ID
+CRABBOX_AZURE_BACKEND
 CRABBOX_AZURE_LOCATION
 CRABBOX_AZURE_RESOURCE_GROUP
 CRABBOX_AZURE_IMAGE

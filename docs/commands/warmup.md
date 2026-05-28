@@ -126,6 +126,7 @@ Flags:
 --class <name>
 --os ubuntu:26.04|ubuntu:24.04
 --type <provider-type>
+--azure-backend vm|dynamic-sessions
 --azure-os-disk managed|ephemeral|auto
 --market spot|on-demand
 --slug <slug>
@@ -227,6 +228,10 @@ disk-snapshot checkpoints can be created and forked. Use
 `--azure-os-disk ephemeral` only for stateless leases where native Azure
 checkpoint/fork support is not needed. `--azure-os-disk auto` is accepted for
 compatibility and resolves to managed.
+
+`--azure-backend dynamic-sessions` keeps `--provider azure` as the family
+selector while routing to the canonical `azure-dynamic-sessions` delegated
+backend.
 
 `--actions-runner` immediately registers the warm box as an ephemeral self-hosted GitHub Actions runner for the current repository. Most projects should prefer `crabbox actions hydrate --id <lease-id-or-slug>` after warmup because it also dispatches the workflow and waits for the ready marker.
 

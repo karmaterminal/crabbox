@@ -360,6 +360,7 @@ Flags:
 --label <text>          human-readable run history/timing label
 --class <name>          machine class override
 --type <name>           provider server or instance type override
+--azure-backend <name> Azure backend: vm or dynamic-sessions
 --azure-os-disk <mode> Azure OS disk mode: managed, ephemeral, or auto
 --market spot|on-demand AWS capacity market override
 --ttl <duration>        maximum lease lifetime, default 90m

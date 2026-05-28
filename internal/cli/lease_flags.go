@@ -75,6 +75,9 @@ func applyLeaseCreateFlagsForLease(cfg *Config, fs *flag.FlagSet, values leaseCr
 	if err := applyNetworkFlagOverrides(cfg, fs, values.Network); err != nil {
 		return err
 	}
+	if err := applyProviderRoutingFlags(cfg, fs, values.ProviderFlags); err != nil {
+		return err
+	}
 	if existingLeaseID != "" && cfg.Provider == "aws" && cfg.TargetOS == targetMacOS && !flagWasSet(fs, "market") {
 		cfg.Capacity.Market = "on-demand"
 	}
@@ -138,6 +141,9 @@ func loadLeaseTargetConfig(fs *flag.FlagSet, provider string, targetFlags target
 		return Config{}, err
 	}
 	if err := applyNetworkModeFlagOverride(&cfg, fs, networkFlags); err != nil {
+		return Config{}, err
+	}
+	if err := routeConfiguredProvider(&cfg); err != nil {
 		return Config{}, err
 	}
 	if err := applyProviderConfigDefaults(&cfg); err != nil {

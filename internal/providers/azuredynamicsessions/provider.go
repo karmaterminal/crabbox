@@ -18,11 +18,17 @@ func (Provider) Aliases() []string { return nil }
 func (Provider) Spec() core.ProviderSpec {
 	return core.ProviderSpec{
 		Name:        providerName,
+		Family:      "azure",
 		Kind:        core.ProviderKindDelegatedRun,
 		Targets:     []core.TargetSpec{{OS: core.TargetLinux}},
 		Features:    core.FeatureSet{core.FeatureArchiveSync},
 		Coordinator: core.CoordinatorNever,
 	}
+}
+
+func (Provider) RouteConfig(cfg *core.Config, _ *flag.FlagSet, _ any) error {
+	cfg.AzureBackend = core.AzureBackendDynamicSessions
+	return nil
 }
 
 func (Provider) RegisterFlags(fs *flag.FlagSet, defaults core.Config) any {
@@ -32,6 +38,10 @@ func (Provider) RegisterFlags(fs *flag.FlagSet, defaults core.Config) any {
 func (Provider) ApplyFlags(cfg *core.Config, fs *flag.FlagSet, values any) error {
 	return ApplyAzureDynamicSessionsProviderFlags(cfg, fs, values)
 }
+
+func (Provider) ServerTypeForConfig(core.Config) string { return "" }
+
+func (Provider) ServerTypeForClass(string) string { return "" }
 
 func (p Provider) Configure(cfg core.Config, rt core.Runtime) (core.Backend, error) {
 	if cfg.TargetOS != "" && cfg.TargetOS != core.TargetLinux {

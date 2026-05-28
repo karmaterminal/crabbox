@@ -33,6 +33,7 @@ func clearConfigEnv(t *testing.T) {
 		"CF_ACCESS_CLIENT_ID",
 		"CF_ACCESS_CLIENT_SECRET",
 		"CF_ACCESS_TOKEN",
+		"CRABBOX_AZURE_BACKEND",
 		"CRABBOX_AZURE_DYNAMIC_SESSIONS_ENDPOINT",
 		"CRABBOX_AZURE_DYNAMIC_SESSIONS_POOL",
 		"CRABBOX_AZURE_DYNAMIC_SESSIONS_API_VERSION",
@@ -707,6 +708,48 @@ func TestLoadConfigExeDevWorkRootDefaults(t *testing.T) {
 				t.Fatalf("workRoot=%q exeDev.workRoot=%q", cfg.WorkRoot, cfg.ExeDev.WorkRoot)
 			}
 		})
+	}
+}
+
+func TestLoadConfigRoutesAzureBackendToDynamicSessions(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	cfgPath := filepath.Join(home, "config.yaml")
+	t.Setenv("CRABBOX_CONFIG", cfgPath)
+	if err := os.WriteFile(cfgPath, []byte(`
+provider: azure
+azure:
+  backend: dynamic-sessions
+azureDynamicSessions:
+  endpoint: http://127.0.0.1:8787/
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider != "azure-dynamic-sessions" || cfg.AzureBackend != AzureBackendDynamicSessions || cfg.ServerType != "" {
+		t.Fatalf("provider=%q azureBackend=%q serverType=%q", cfg.Provider, cfg.AzureBackend, cfg.ServerType)
+	}
+}
+
+func TestLoadConfigRoutesAzureBackendFromEnv(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("CRABBOX_CONFIG", filepath.Join(home, "missing.yaml"))
+	t.Setenv("CRABBOX_PROVIDER", "azure")
+	t.Setenv("CRABBOX_AZURE_BACKEND", "azds")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider != "azure-dynamic-sessions" || cfg.AzureBackend != AzureBackendDynamicSessions {
+		t.Fatalf("provider=%q azureBackend=%q", cfg.Provider, cfg.AzureBackend)
 	}
 }
 

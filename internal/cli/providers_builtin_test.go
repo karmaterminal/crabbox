@@ -24,16 +24,21 @@ func init() {
 	RegisterProvider(testSpritesProvider{})
 	RegisterProvider(testLocalContainerProvider{})
 	RegisterProvider(testParallelsProvider{})
+	RegisterProvider(testWandbProvider{})
 }
 
 type testAzureProvider struct{}
 
 func (testAzureProvider) Name() string      { return "azure" }
 func (testAzureProvider) Aliases() []string { return nil }
+func (testAzureProvider) RoutingFlagNames() []string {
+	return []string{"azure-backend"}
+}
 func (testAzureProvider) Spec() ProviderSpec {
 	return ProviderSpec{
-		Name: "azure",
-		Kind: ProviderKindSSHLease,
+		Name:   "azure",
+		Family: "azure",
+		Kind:   ProviderKindSSHLease,
 		Targets: []TargetSpec{
 			{OS: targetLinux},
 			{OS: targetWindows, WindowsMode: windowsModeNormal},
@@ -43,9 +48,39 @@ func (testAzureProvider) Spec() ProviderSpec {
 		Coordinator: CoordinatorSupported,
 	}
 }
-func (testAzureProvider) RegisterFlags(*flag.FlagSet, Config) any { return noProviderFlags{} }
-func (testAzureProvider) ApplyFlags(*Config, *flag.FlagSet, any) error {
+func (testAzureProvider) RegisterFlags(fs *flag.FlagSet, defaults Config) any {
+	return struct{ Backend *string }{
+		Backend: fs.String("azure-backend", defaults.AzureBackend, ""),
+	}
+}
+func (testAzureProvider) RouteConfig(cfg *Config, fs *flag.FlagSet, values any) error {
+	backend := cfg.AzureBackend
+	if fs != nil && flagWasSet(fs, "azure-backend") {
+		flags, _ := values.(struct{ Backend *string })
+		if flags.Backend != nil {
+			backend = *flags.Backend
+		}
+	}
+	normalized, err := NormalizeAzureBackend(backend)
+	if err != nil {
+		return exit(2, "%s", err)
+	}
+	cfg.AzureBackend = normalized
+	if normalized == AzureBackendDynamicSessions {
+		cfg.Provider = "azure-dynamic-sessions"
+	} else {
+		cfg.Provider = "azure"
+	}
 	return nil
+}
+func (p testAzureProvider) ApplyFlags(cfg *Config, fs *flag.FlagSet, values any) error {
+	return p.RouteConfig(cfg, fs, values)
+}
+func (testAzureProvider) ServerTypeForConfig(cfg Config) string {
+	return azureVMSizeCandidatesForConfig(cfg)[0]
+}
+func (testAzureProvider) ServerTypeForClass(class string) string {
+	return azureVMSizeCandidatesForClass(class)[0]
 }
 func (p testAzureProvider) Configure(cfg Config, rt Runtime) (Backend, error) {
 	return testSSHBackend{spec: p.Spec()}, nil
@@ -92,11 +127,16 @@ func (testAzureDynamicSessionsProvider) Aliases() []string { return nil }
 func (testAzureDynamicSessionsProvider) Spec() ProviderSpec {
 	return ProviderSpec{
 		Name:        "azure-dynamic-sessions",
+		Family:      "azure",
 		Kind:        ProviderKindDelegatedRun,
 		Targets:     []TargetSpec{{OS: targetLinux}},
 		Features:    FeatureSet{FeatureArchiveSync},
 		Coordinator: CoordinatorNever,
 	}
+}
+func (testAzureDynamicSessionsProvider) RouteConfig(cfg *Config, _ *flag.FlagSet, _ any) error {
+	cfg.AzureBackend = AzureBackendDynamicSessions
+	return nil
 }
 func (testAzureDynamicSessionsProvider) RegisterFlags(*flag.FlagSet, Config) any {
 	return noProviderFlags{}
@@ -104,7 +144,31 @@ func (testAzureDynamicSessionsProvider) RegisterFlags(*flag.FlagSet, Config) any
 func (testAzureDynamicSessionsProvider) ApplyFlags(*Config, *flag.FlagSet, any) error {
 	return nil
 }
+func (testAzureDynamicSessionsProvider) ServerTypeForConfig(Config) string { return "" }
+func (testAzureDynamicSessionsProvider) ServerTypeForClass(string) string  { return "" }
 func (p testAzureDynamicSessionsProvider) Configure(cfg Config, rt Runtime) (Backend, error) {
+	return testDelegatedBackend{spec: p.Spec()}, nil
+}
+
+type testWandbProvider struct{}
+
+func (testWandbProvider) Name() string      { return "wandb" }
+func (testWandbProvider) Aliases() []string { return nil }
+func (testWandbProvider) Spec() ProviderSpec {
+	return ProviderSpec{
+		Name:        "wandb",
+		Family:      "wandb",
+		Kind:        ProviderKindDelegatedRun,
+		Targets:     []TargetSpec{{OS: targetLinux}},
+		Features:    FeatureSet{FeatureArchiveSync},
+		Coordinator: CoordinatorNever,
+	}
+}
+func (testWandbProvider) RegisterFlags(*flag.FlagSet, Config) any { return noProviderFlags{} }
+func (testWandbProvider) ApplyFlags(*Config, *flag.FlagSet, any) error {
+	return nil
+}
+func (p testWandbProvider) Configure(cfg Config, rt Runtime) (Backend, error) {
 	return testDelegatedBackend{spec: p.Spec()}, nil
 }
 

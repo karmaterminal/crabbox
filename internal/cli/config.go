@@ -50,6 +50,7 @@ type Config struct {
 	AzureTenant                 string
 	AzureClientID               string
 	AzureLocation               string
+	AzureBackend                string
 	AzureResourceGroup          string
 	AzureImage                  string
 	azureImageExplicit          bool
@@ -210,6 +211,22 @@ type AzureDynamicSessionsConfig struct {
 	APIVersion  string
 	Workdir     string
 	TimeoutSecs int
+}
+
+const (
+	AzureBackendVM              = "vm"
+	AzureBackendDynamicSessions = "dynamic-sessions"
+)
+
+func NormalizeAzureBackend(backend string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(backend)) {
+	case "", "vm", "vms", "virtual-machine", "virtual-machines":
+		return AzureBackendVM, nil
+	case "dynamic-sessions", "dynamic-session", "sessions", "azds":
+		return AzureBackendDynamicSessions, nil
+	default:
+		return "", fmt.Errorf("azure backend must be vm or dynamic-sessions")
+	}
 }
 
 type ExeDevConfig struct {
@@ -513,6 +530,9 @@ func loadConfig() (Config, error) {
 	}
 	applyEnv(&cfg)
 	canonicalizeConfigProvider(&cfg)
+	if err := routeConfiguredProvider(&cfg); err != nil {
+		return Config{}, err
+	}
 	if err := applyProviderConfigDefaults(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -655,6 +675,7 @@ func baseConfig() Config {
 		Image:              hetznerImage,
 		AWSRegion:          "eu-west-1",
 		AWSRootGB:          400,
+		AzureBackend:       "vm",
 		AzureLocation:      "eastus",
 		AzureResourceGroup: "crabbox-leases",
 		AzureImage:         azureImage,
@@ -903,6 +924,7 @@ type fileAzureConfig struct {
 	SubscriptionID string   `yaml:"subscriptionId,omitempty"`
 	TenantID       string   `yaml:"tenantId,omitempty"`
 	ClientID       string   `yaml:"clientId,omitempty"`
+	Backend        string   `yaml:"backend,omitempty"`
 	Location       string   `yaml:"location,omitempty"`
 	ResourceGroup  string   `yaml:"resourceGroup,omitempty"`
 	Image          string   `yaml:"image,omitempty"`
@@ -1609,6 +1631,9 @@ func applyFileConfig(cfg *Config, file fileConfig) {
 		}
 	}
 	if file.Azure != nil {
+		if file.Azure.Backend != "" {
+			cfg.AzureBackend = file.Azure.Backend
+		}
 		if file.Azure.SubscriptionID != "" {
 			cfg.AzureSubscription = file.Azure.SubscriptionID
 		}
@@ -2647,6 +2672,7 @@ func applyEnv(cfg *Config) {
 	cfg.AzureSubscription = getenv("CRABBOX_AZURE_SUBSCRIPTION_ID", getenv("AZURE_SUBSCRIPTION_ID", cfg.AzureSubscription))
 	cfg.AzureTenant = getenv("CRABBOX_AZURE_TENANT_ID", getenv("AZURE_TENANT_ID", cfg.AzureTenant))
 	cfg.AzureClientID = getenv("CRABBOX_AZURE_CLIENT_ID", getenv("AZURE_CLIENT_ID", cfg.AzureClientID))
+	cfg.AzureBackend = getenv("CRABBOX_AZURE_BACKEND", cfg.AzureBackend)
 	cfg.AzureLocation = getenv("CRABBOX_AZURE_LOCATION", cfg.AzureLocation)
 	cfg.AzureResourceGroup = getenv("CRABBOX_AZURE_RESOURCE_GROUP", cfg.AzureResourceGroup)
 	if image := os.Getenv("CRABBOX_AZURE_IMAGE"); image != "" {
@@ -3005,6 +3031,9 @@ func serverTypeForClass(class string) string {
 func serverTypeForConfig(cfg Config) string {
 	if resolved, err := ProviderFor(cfg.Provider); err == nil {
 		cfg.Provider = resolved.Name()
+		if typer, ok := resolved.(ProviderServerTypeProvider); ok {
+			return typer.ServerTypeForConfig(cfg)
+		}
 	}
 	if isBlacksmithProvider(cfg.Provider) || isStaticProvider(cfg.Provider) || cfg.Provider == "islo" || cfg.Provider == "sprites" || cfg.Provider == "local-container" {
 		return ""
@@ -3051,6 +3080,9 @@ func serverTypeForConfig(cfg Config) string {
 func serverTypeForProviderClass(provider, class string) string {
 	if resolved, err := ProviderFor(provider); err == nil {
 		provider = resolved.Name()
+		if typer, ok := resolved.(ProviderServerTypeProvider); ok {
+			return typer.ServerTypeForClass(class)
+		}
 	}
 	if isBlacksmithProvider(provider) || isStaticProvider(provider) || provider == "islo" || provider == "sprites" || provider == "local-container" {
 		return ""

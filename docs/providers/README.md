@@ -48,6 +48,12 @@ config. Provider flags are registered by provider packages before command-line
 parsing, so provider-specific flags work even when that provider is not the
 default.
 
+Some provider names share a family. The Azure family has the default VM SSH
+lease backend (`provider: azure`, `azure.backend: vm`) and a delegated Dynamic
+Sessions backend (`azure.backend: dynamic-sessions`, canonical provider
+`azure-dynamic-sessions`). Tensorlake is Crabbox's Firecracker-backed delegated
+provider; Crabbox does not provision raw AWS Firecracker instances directly.
+
 ```sh
 crabbox warmup --provider aws --class beast
 crabbox run --provider hetzner -- pnpm test

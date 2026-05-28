@@ -22,6 +22,7 @@ func (Provider) Aliases() []string {
 func (Provider) Spec() core.ProviderSpec {
 	return core.ProviderSpec{
 		Name:        providerName,
+		Family:      "cloudflare",
 		Kind:        core.ProviderKindDelegatedRun,
 		Targets:     []core.TargetSpec{{OS: core.TargetLinux}},
 		Features:    core.FeatureSet{core.FeatureArchiveSync, core.FeatureCleanup},

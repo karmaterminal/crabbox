@@ -1,9 +1,11 @@
 # Azure Dynamic Sessions Provider
 
 Use `provider: azure-dynamic-sessions` to run Linux commands inside Microsoft
-Azure Container Apps custom container dynamic sessions. Azure owns the
-Hyper-V-isolated session pool and lifecycle; Crabbox owns the runner image,
-local claims, archive sync, command streaming, and timing output.
+Azure Container Apps custom container dynamic sessions. You can also select the
+same backend with `provider: azure` plus `azure.backend: dynamic-sessions` or
+`--azure-backend dynamic-sessions`. Azure owns the Hyper-V-isolated session pool
+and lifecycle; Crabbox owns the runner image, local claims, archive sync,
+command streaming, and timing output.
 
 Microsoft docs:
 
@@ -97,6 +99,18 @@ Set the full custom container pool management endpoint:
 ```yaml
 provider: azure-dynamic-sessions
 target: linux
+azureDynamicSessions:
+  endpoint: https://<pool>.<environment-id>.eastus.azurecontainerapps.io
+  workdir: /workspace/crabbox
+```
+
+Equivalent Azure-family config:
+
+```yaml
+provider: azure
+target: linux
+azure:
+  backend: dynamic-sessions
 azureDynamicSessions:
   endpoint: https://<pool>.<environment-id>.eastus.azurecontainerapps.io
   workdir: /workspace/crabbox

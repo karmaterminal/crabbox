@@ -35,6 +35,26 @@ func ServerTypeForProviderClass(provider, class string) string {
 	return serverTypeForProviderClass(provider, class)
 }
 
+func AWSInstanceTypeCandidatesForConfig(cfg Config) []string {
+	return awsInstanceTypeCandidatesForConfig(cfg)
+}
+
+func AWSInstanceTypeCandidatesForClass(class string) []string {
+	return awsInstanceTypeCandidatesForClass(class)
+}
+
+func AzureVMSizeCandidatesForConfig(cfg Config) []string {
+	return azureVMSizeCandidatesForConfig(cfg)
+}
+
+func AzureVMSizeCandidatesForClass(class string) []string {
+	return azureVMSizeCandidatesForClass(class)
+}
+
+func GCPMachineTypeCandidatesForClass(class string) []string {
+	return gcpMachineTypeCandidatesForClass(class)
+}
+
 func ProxmoxServerTypeForConfig(cfg Config) string {
 	return proxmoxServerTypeForConfig(cfg)
 }

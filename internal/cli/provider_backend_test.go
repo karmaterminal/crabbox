@@ -76,6 +76,81 @@ func TestProviderHelpAllIncludesWandb(t *testing.T) {
 	if !strings.Contains(providerHelpAll(), "wandb") {
 		t.Fatalf("providerHelpAll() = %q, want wandb", providerHelpAll())
 	}
+	if strings.Contains(providerHelpSSH(), "azure-dynamic-sessions") {
+		t.Fatalf("providerHelpSSH() = %q, want only ssh-capable providers", providerHelpSSH())
+	}
+}
+
+func TestAzureBackendFlagRoutesToDynamicSessions(t *testing.T) {
+	defaults := baseConfig()
+	fs := newFlagSet("test", io.Discard)
+	values := registerLeaseCreateFlags(fs, defaults)
+	if err := parseFlags(fs, []string{"--provider", "azure", "--azure-backend", "dynamic-sessions"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaults
+	if err := applyLeaseCreateFlags(&cfg, fs, values); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider != "azure-dynamic-sessions" || cfg.AzureBackend != AzureBackendDynamicSessions || cfg.ServerType != "" {
+		t.Fatalf("provider=%q azureBackend=%q serverType=%q", cfg.Provider, cfg.AzureBackend, cfg.ServerType)
+	}
+}
+
+func TestProviderFlagsRouteAzureBackendWithoutLeaseCreate(t *testing.T) {
+	defaults := baseConfig()
+	fs := newFlagSet("test", io.Discard)
+	providerFlag := fs.String("provider", defaults.Provider, "")
+	values := registerProviderFlags(fs, defaults)
+	if err := parseFlags(fs, []string{"--provider", "azure", "--azure-backend", "dynamic-sessions"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaults
+	cfg.Provider = *providerFlag
+	if err := applyProviderFlags(&cfg, fs, values); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider != "azure-dynamic-sessions" || cfg.AzureBackend != AzureBackendDynamicSessions {
+		t.Fatalf("provider=%q azureBackend=%q", cfg.Provider, cfg.AzureBackend)
+	}
+}
+
+func TestAzureBackendFlagOverridesDynamicSessionsConfig(t *testing.T) {
+	defaults := baseConfig()
+	defaults.Provider = "azure-dynamic-sessions"
+	defaults.AzureBackend = AzureBackendDynamicSessions
+	fs := newFlagSet("test", io.Discard)
+	values := registerLeaseCreateFlags(fs, defaults)
+	if err := parseFlags(fs, []string{"--azure-backend", "vm"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaults
+	if err := applyLeaseCreateFlags(&cfg, fs, values); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider != "azure" || cfg.AzureBackend != AzureBackendVM || cfg.ServerType == "" {
+		t.Fatalf("provider=%q azureBackend=%q serverType=%q", cfg.Provider, cfg.AzureBackend, cfg.ServerType)
+	}
+}
+
+func TestProviderFlagsOverrideDynamicSessionsConfigWithoutLeaseCreate(t *testing.T) {
+	defaults := baseConfig()
+	defaults.Provider = "azure-dynamic-sessions"
+	defaults.AzureBackend = AzureBackendDynamicSessions
+	fs := newFlagSet("test", io.Discard)
+	providerFlag := fs.String("provider", defaults.Provider, "")
+	values := registerProviderFlags(fs, defaults)
+	if err := parseFlags(fs, []string{"--azure-backend", "vm"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaults
+	cfg.Provider = *providerFlag
+	if err := applyProviderFlags(&cfg, fs, values); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Provider != "azure" || cfg.AzureBackend != AzureBackendVM {
+		t.Fatalf("provider=%q azureBackend=%q", cfg.Provider, cfg.AzureBackend)
+	}
 }
 
 func TestLoadBackendWrapsCoordinatorOnlyForSupportedSSHProviders(t *testing.T) {

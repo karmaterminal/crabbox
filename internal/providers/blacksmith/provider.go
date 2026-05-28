@@ -19,6 +19,7 @@ func (Provider) Aliases() []string {
 func (Provider) Spec() core.ProviderSpec {
 	return core.ProviderSpec{
 		Name:        "blacksmith-testbox",
+		Family:      "blacksmith",
 		Kind:        core.ProviderKindDelegatedRun,
 		Targets:     []core.TargetSpec{{OS: core.TargetLinux}},
 		Features:    core.FeatureSet{core.FeatureRunProof, core.FeatureRunSession},

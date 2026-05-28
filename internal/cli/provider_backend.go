@@ -22,6 +22,19 @@ type Provider interface {
 	Configure(cfg Config, rt Runtime) (Backend, error)
 }
 
+type ProviderRouter interface {
+	RouteConfig(cfg *Config, fs *flag.FlagSet, values any) error
+}
+
+type ProviderRoutingFlagProvider interface {
+	RoutingFlagNames() []string
+}
+
+type ProviderServerTypeProvider interface {
+	ServerTypeForConfig(cfg Config) string
+	ServerTypeForClass(class string) string
+}
+
 type Backend interface {
 	Spec() ProviderSpec
 }
@@ -112,6 +125,7 @@ type JSONListBackend interface {
 
 type ProviderSpec struct {
 	Name        string
+	Family      string
 	Kind        ProviderKind
 	Targets     []TargetSpec
 	Features    FeatureSet
@@ -460,11 +474,13 @@ func normalizeProviderName(name string) string {
 }
 
 func providerHelpAll() string {
-	return "provider: hetzner, aws, azure, azure-dynamic-sessions, gcp, proxmox, parallels, local-container, ssh, exe-dev, blacksmith-testbox, namespace-devbox, semaphore, daytona, islo, e2b, modal, sprites, railway, runpod, cloudflare, or wandb"
+	return "provider: " + strings.Join(providerNamesForHelp(nil), ", ")
 }
 
 func providerHelpSSH() string {
-	return "provider: hetzner, aws, azure, gcp, proxmox, parallels, local-container, ssh, exe-dev, namespace-devbox, semaphore, daytona, runpod, or sprites"
+	return "provider: " + strings.Join(providerNamesForHelp(func(spec ProviderSpec) bool {
+		return spec.Features.Has(FeatureSSH)
+	}), ", ")
 }
 
 func isBlacksmithProvider(provider string) bool {
@@ -481,12 +497,118 @@ func registerProviderFlags(fs *flag.FlagSet, defaults Config) providerFlagValues
 	return values
 }
 
-func applyProviderFlags(cfg *Config, fs *flag.FlagSet, values providerFlagValues) error {
+func providerNamesForHelp(include func(ProviderSpec) bool) []string {
+	providers := registeredProviders()
+	names := make([]string, 0, len(providers))
+	for _, provider := range providers {
+		spec := provider.Spec()
+		if include != nil && !include(spec) {
+			continue
+		}
+		names = append(names, provider.Name())
+	}
+	return names
+}
+
+func applyProviderRoutingFlags(cfg *Config, fs *flag.FlagSet, values providerFlagValues) error {
+	if routed, err := routeProviderFlagOverride(cfg, fs, values); routed || err != nil {
+		return err
+	}
 	provider, err := ProviderFor(cfg.Provider)
 	if err != nil {
 		return err
 	}
-	return provider.ApplyFlags(cfg, fs, values[provider.Name()])
+	if router, ok := provider.(ProviderRouter); ok {
+		cfg.Provider = provider.Name()
+		if err := router.RouteConfig(cfg, fs, values[provider.Name()]); err != nil {
+			return err
+		}
+		if resolved, err := ProviderFor(cfg.Provider); err == nil {
+			cfg.Provider = resolved.Name()
+		}
+	}
+	return nil
+}
+
+func applyProviderFlags(cfg *Config, fs *flag.FlagSet, values providerFlagValues) error {
+	if _, err := routeProviderFlagOverride(cfg, fs, values); err != nil {
+		return err
+	}
+	provider, err := ProviderFor(cfg.Provider)
+	if err != nil {
+		return err
+	}
+	before := provider.Name()
+	if err := provider.ApplyFlags(cfg, fs, values[provider.Name()]); err != nil {
+		return err
+	}
+	after, err := ProviderFor(cfg.Provider)
+	if err != nil || after.Name() == before {
+		return err
+	}
+	cfg.Provider = after.Name()
+	return after.ApplyFlags(cfg, fs, values[after.Name()])
+}
+
+func routeProviderFlagOverride(cfg *Config, fs *flag.FlagSet, values providerFlagValues) (bool, error) {
+	if fs == nil {
+		return false, nil
+	}
+	current, err := ProviderFor(cfg.Provider)
+	if err != nil {
+		return false, err
+	}
+	currentFamily := providerFamily(current)
+	for _, candidate := range registeredProviders() {
+		flagger, ok := candidate.(ProviderRoutingFlagProvider)
+		if !ok || providerFamily(candidate) != currentFamily || !anyFlagWasSet(fs, flagger.RoutingFlagNames()) {
+			continue
+		}
+		router, ok := candidate.(ProviderRouter)
+		if !ok {
+			continue
+		}
+		cfg.Provider = candidate.Name()
+		if err := router.RouteConfig(cfg, fs, values[candidate.Name()]); err != nil {
+			return true, err
+		}
+		if resolved, err := ProviderFor(cfg.Provider); err == nil {
+			cfg.Provider = resolved.Name()
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func providerFamily(provider Provider) string {
+	spec := provider.Spec()
+	return firstNonBlank(spec.Family, provider.Name())
+}
+
+func anyFlagWasSet(fs *flag.FlagSet, names []string) bool {
+	for _, name := range names {
+		if flagWasSet(fs, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func routeConfiguredProvider(cfg *Config) error {
+	provider, err := ProviderFor(cfg.Provider)
+	if err != nil {
+		return err
+	}
+	cfg.Provider = provider.Name()
+	if router, ok := provider.(ProviderRouter); ok {
+		if err := router.RouteConfig(cfg, nil, nil); err != nil {
+			return err
+		}
+	}
+	if resolved, err := ProviderFor(cfg.Provider); err == nil {
+		cfg.Provider = resolved.Name()
+	}
+	return nil
 }
 
 func runtimeForApp(a App) Runtime {
