@@ -210,9 +210,13 @@ func (b *azureDynamicSessionsBackend) List(ctx context.Context, req ListRequest)
 	if err != nil {
 		return nil, err
 	}
+	scope, err := b.claimScope()
+	if err != nil {
+		return nil, err
+	}
 	claimByID := map[string]coreLeaseClaim{}
 	for _, claim := range claims {
-		if claim.Provider == providerName {
+		if claim.Provider == providerName && strings.TrimSpace(claim.ProviderScope) == scope {
 			claimByID[claim.LeaseID] = coreLeaseClaim{LeaseID: claim.LeaseID, Slug: claim.Slug, RepoRoot: claim.RepoRoot}
 		}
 	}
@@ -315,7 +319,12 @@ func (b *azureDynamicSessionsBackend) createSession(ctx context.Context, client 
 	if err := client.CheckRunner(ctx, leaseID); err != nil {
 		return "", "", providerError("create session", err)
 	}
-	if err := claimLeaseForRepoProvider(leaseID, slug, providerName, repo.Root, b.cfg.IdleTimeout, reclaim); err != nil {
+	scope, err := b.claimScope()
+	if err != nil {
+		_ = client.DeleteSession(context.Background(), leaseID)
+		return "", "", err
+	}
+	if err := claimLeaseForRepoProviderScope(leaseID, slug, providerName, scope, repo.Root, b.cfg.IdleTimeout, reclaim); err != nil {
 		_ = client.DeleteSession(context.Background(), leaseID)
 		return "", "", err
 	}
@@ -326,17 +335,46 @@ func (b *azureDynamicSessionsBackend) resolveSessionID(_ context.Context, _ azur
 	if id == "" {
 		return "", "", exit(2, "provider=%s requires a kept Crabbox lease id or slug", providerName)
 	}
-	if claim, ok, err := resolveLeaseClaimForProvider(id, providerName); err != nil {
+	scope, err := b.claimScope()
+	if err != nil {
+		return "", "", err
+	}
+	if claim, ok, err := resolveAzureDynamicSessionsClaim(id, scope); err != nil {
 		return "", "", err
 	} else if ok {
 		if repoRoot != "" {
-			if err := claimLeaseForRepoProvider(claim.LeaseID, claim.Slug, providerName, repoRoot, time.Duration(claim.IdleTimeoutSeconds)*time.Second, reclaim); err != nil {
+			if err := claimLeaseForRepoProviderScope(claim.LeaseID, claim.Slug, providerName, scope, repoRoot, time.Duration(claim.IdleTimeoutSeconds)*time.Second, reclaim); err != nil {
 				return "", "", err
 			}
 		}
 		return claim.LeaseID, claim.Slug, nil
 	}
 	return "", "", exit(4, "%s session %q is not claimed by Crabbox; use a kept Crabbox lease id or slug", providerName, id)
+}
+
+func (b *azureDynamicSessionsBackend) claimScope() (string, error) {
+	endpoint, err := azureDynamicSessionsEndpoint(b.cfg)
+	if err != nil {
+		return "", err
+	}
+	return "endpoint:" + endpoint, nil
+}
+
+func resolveAzureDynamicSessionsClaim(identifier, scope string) (LeaseClaim, bool, error) {
+	claims, err := listLeaseClaims()
+	if err != nil {
+		return LeaseClaim{}, false, err
+	}
+	slug := normalizeLeaseSlug(identifier)
+	for _, claim := range claims {
+		if claim.Provider != providerName || strings.TrimSpace(claim.ProviderScope) != scope {
+			continue
+		}
+		if claim.LeaseID == identifier || (slug != "" && normalizeLeaseSlug(claim.Slug) == slug) {
+			return claim, true, nil
+		}
+	}
+	return LeaseClaim{}, false, nil
 }
 
 type coreLeaseClaim struct {

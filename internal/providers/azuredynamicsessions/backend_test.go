@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const testAzureDynamicSessionsEndpoint = "http://127.0.0.1:8787"
+
 func TestRunStopsNewSessionByDefault(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := t.TempDir()
@@ -67,9 +69,7 @@ func TestRunKeepOnFailureRetainsNewSession(t *testing.T) {
 func TestRunReusesClaimWithoutStoppingSession(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repo := t.TempDir()
-	if err := claimLeaseForRepoProvider("azds-kept", "kept-session", providerName, repo, time.Minute, false); err != nil {
-		t.Fatal(err)
-	}
+	claimAzureDynamicSessionsLease(t, "azds-kept", "kept-session", repo, time.Minute)
 	fake := &recordingAzureDynamicSessionsAPI{}
 	restoreAzureDynamicSessionsClient(t, fake)
 	backend := testAzureDynamicSessionsBackend()
@@ -111,9 +111,7 @@ func TestWarmupRejectsActionsRunner(t *testing.T) {
 
 func TestStopRemovesStaleClaimWhenSessionIsGone(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	if err := claimLeaseForRepoProvider("azds-stale", "stale-session", providerName, t.TempDir(), time.Minute, false); err != nil {
-		t.Fatal(err)
-	}
+	claimAzureDynamicSessionsLease(t, "azds-stale", "stale-session", t.TempDir(), time.Minute)
 	fake := &recordingAzureDynamicSessionsAPI{
 		deleteErr: &azureDynamicSessionsAPIError{StatusCode: 404, Status: "404 Not Found"},
 	}
@@ -130,9 +128,7 @@ func TestStopRemovesStaleClaimWhenSessionIsGone(t *testing.T) {
 
 func TestStopRemovesStaleClaimOnAzureMissingSessionCode(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	if err := claimLeaseForRepoProvider("azds-stale-400", "stale-session-400", providerName, t.TempDir(), time.Minute, false); err != nil {
-		t.Fatal(err)
-	}
+	claimAzureDynamicSessionsLease(t, "azds-stale-400", "stale-session-400", t.TempDir(), time.Minute)
 	fake := &recordingAzureDynamicSessionsAPI{
 		deleteErr: &azureDynamicSessionsAPIError{
 			StatusCode: 400,
@@ -153,7 +149,7 @@ func TestStopRemovesStaleClaimOnAzureMissingSessionCode(t *testing.T) {
 
 func TestResolveSessionIDRequiresLocalClaim(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	backend := &azureDynamicSessionsBackend{}
+	backend := testAzureDynamicSessionsBackend()
 	client := &recordingAzureDynamicSessionsAPI{}
 
 	_, _, err := backend.resolveSessionID(context.Background(), client, "azds-external", t.TempDir(), false)
@@ -169,10 +165,8 @@ func TestResolveSessionIDUsesClaimedSlug(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	repoA := t.TempDir()
 	repoB := t.TempDir()
-	if err := claimLeaseForRepoProvider("azds-claimed", "claimed-session", providerName, repoA, time.Minute, false); err != nil {
-		t.Fatal(err)
-	}
-	backend := &azureDynamicSessionsBackend{}
+	claimAzureDynamicSessionsLease(t, "azds-claimed", "claimed-session", repoA, time.Minute)
+	backend := testAzureDynamicSessionsBackend()
 	client := &recordingAzureDynamicSessionsAPI{}
 
 	if _, _, err := backend.resolveSessionID(context.Background(), client, "claimed-session", repoB, false); err == nil || !strings.Contains(err.Error(), "use --reclaim") {
@@ -187,6 +181,30 @@ func TestResolveSessionIDUsesClaimedSlug(t *testing.T) {
 	}
 	if client.getSessionCalls != 0 {
 		t.Fatalf("GetSession calls = %d, want 0", client.getSessionCalls)
+	}
+}
+
+func TestResolveSessionIDRejectsClaimFromDifferentEndpoint(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if err := claimLeaseForRepoProviderScope("azds-other-pool", "other-pool", providerName, "endpoint:http://127.0.0.1:8788", t.TempDir(), time.Minute, false); err != nil {
+		t.Fatal(err)
+	}
+	backend := testAzureDynamicSessionsBackend()
+	client := &recordingAzureDynamicSessionsAPI{}
+
+	if _, _, err := backend.resolveSessionID(context.Background(), client, "other-pool", t.TempDir(), false); err == nil || !strings.Contains(err.Error(), "not claimed by Crabbox") {
+		t.Fatalf("resolve wrong-scope err=%v, want claim boundary error", err)
+	}
+	if client.getSessionCalls != 0 {
+		t.Fatalf("GetSession calls = %d, want 0", client.getSessionCalls)
+	}
+}
+
+func claimAzureDynamicSessionsLease(t *testing.T, leaseID, slug, repoRoot string, idleTimeout time.Duration) {
+	t.Helper()
+	scope := "endpoint:" + testAzureDynamicSessionsEndpoint
+	if err := claimLeaseForRepoProviderScope(leaseID, slug, providerName, scope, repoRoot, idleTimeout, false); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -246,7 +264,7 @@ func restoreAzureDynamicSessionsClient(t *testing.T, api azureDynamicSessionsAPI
 
 func testAzureDynamicSessionsBackend() *azureDynamicSessionsBackend {
 	return &azureDynamicSessionsBackend{
-		cfg: Config{},
+		cfg: Config{AzureDynamicSessions: AzureDynamicSessionsConfig{Endpoint: testAzureDynamicSessionsEndpoint}},
 		rt: Runtime{
 			Stdout: &bytes.Buffer{},
 			Stderr: &bytes.Buffer{},

@@ -13,6 +13,7 @@ import (
 )
 
 type Config = core.Config
+type AzureDynamicSessionsConfig = core.AzureDynamicSessionsConfig
 type ProviderSpec = core.ProviderSpec
 type Runtime = core.Runtime
 type Backend = core.Backend
@@ -32,6 +33,7 @@ type SyncManifest = core.SyncManifest
 type LocalCommandRequest = core.LocalCommandRequest
 type LocalCommandResult = core.LocalCommandResult
 type ExitError = core.ExitError
+type LeaseClaim = core.LeaseClaim
 type timingReport = core.TimingReport
 type timingPhase = core.TimingPhase
 
@@ -82,6 +84,10 @@ func allocateClaimLeaseSlug(leaseID, requested string) (string, error) {
 
 func claimLeaseForRepoProvider(leaseID, slug, provider, repoRoot string, idleTimeout time.Duration, reclaim bool) error {
 	return core.ClaimLeaseForRepoProvider(leaseID, slug, provider, repoRoot, idleTimeout, reclaim)
+}
+
+func claimLeaseForRepoProviderScope(leaseID, slug, provider, providerScope, repoRoot string, idleTimeout time.Duration, reclaim bool) error {
+	return core.ClaimLeaseForRepoProviderScope(leaseID, slug, provider, providerScope, repoRoot, idleTimeout, reclaim)
 }
 
 func resolveLeaseClaimForProvider(identifier, provider string) (core.LeaseClaim, bool, error) {
