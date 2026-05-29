@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.21.1 - Unreleased
+## 0.21.1 - 2026-05-29
 
 ### Added
 
@@ -19,6 +19,7 @@
 - Fixed AWS EC2 Mac host cleanup and selection so stale pending hosts are released by the orphan sweep and hosts with no reported launch capacity are skipped.
 - Fixed `crabbox stop` to accept `--id <lease>` like every other lease command, and updated the stop hint that `crabbox run` prints so it can be pasted back verbatim. Thanks @edihasaj.
 - Fixed lease commands (`run`, `status`, `stop`, `ssh`, `inspect`, `screenshot`, `vnc`, `webvnc`, `actions`, `artifacts`, `checkpoint`, `egress`) to auto-route `--id static_<slug>` ids to `--provider ssh` and restore the original static host from the local lease claim, so static SSH leases no longer require repeating routing flags after `crabbox warmup`.
+
 ## 0.21.0 - 2026-05-27
 
 ### Added
