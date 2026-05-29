@@ -407,16 +407,9 @@ func resolveIsloLeaseID(id, repoRoot string, reclaim bool) (string, string, stri
 	if id == "" {
 		return "", "", "", exit(2, "provider=islo requires a Crabbox-created sandbox name, lease id, or slug")
 	}
-	if strings.HasPrefix(id, isloLeasePrefix) {
-		name := strings.TrimPrefix(id, isloLeasePrefix)
-		if !isCrabboxIsloSandboxName(name) {
-			return "", "", "", exit(4, "islo lease %q is not a Crabbox-owned sandbox", id)
-		}
-		return id, name, newLeaseSlug(id), nil
-	}
-	if claim, ok, err := resolveLeaseClaim(id); err != nil {
+	if claim, ok, err := resolveIsloClaim(id); err != nil {
 		return "", "", "", err
-	} else if ok && claim.Provider == isloProvider {
+	} else if ok {
 		if repoRoot != "" {
 			if err := claimLeaseForRepoProvider(claim.LeaseID, claim.Slug, isloProvider, repoRoot, time.Duration(claim.IdleTimeoutSeconds)*time.Second, reclaim); err != nil {
 				return "", "", "", err
@@ -424,11 +417,33 @@ func resolveIsloLeaseID(id, repoRoot string, reclaim bool) (string, string, stri
 		}
 		return claim.LeaseID, strings.TrimPrefix(claim.LeaseID, isloLeasePrefix), blank(claim.Slug, newLeaseSlug(claim.LeaseID)), nil
 	}
+	if strings.HasPrefix(id, isloLeasePrefix) {
+		name := strings.TrimPrefix(id, isloLeasePrefix)
+		if !isCrabboxIsloSandboxName(name) {
+			return "", "", "", exit(4, "islo lease %q is not a Crabbox-owned sandbox", id)
+		}
+		return id, name, newLeaseSlug(id), nil
+	}
 	if !isCrabboxIsloSandboxName(id) {
 		return "", "", "", exit(4, "islo sandbox %q is not claimed by Crabbox; use a Crabbox slug or %s<crabbox-sandbox-name>", id, isloLeasePrefix)
 	}
 	leaseID := isloLeasePrefix + id
 	return leaseID, id, newLeaseSlug(leaseID), nil
+}
+
+func resolveIsloClaim(id string) (core.LeaseClaim, bool, error) {
+	claim, ok, err := resolveLeaseClaim(id)
+	if err != nil || (ok && claim.Provider == isloProvider) {
+		return claim, ok, err
+	}
+	if strings.HasPrefix(id, isloLeasePrefix) || !isCrabboxIsloSandboxName(id) {
+		return core.LeaseClaim{}, false, nil
+	}
+	claim, ok, err = resolveLeaseClaim(isloLeasePrefix + id)
+	if err != nil || (ok && claim.Provider == isloProvider) {
+		return claim, ok, err
+	}
+	return core.LeaseClaim{}, false, nil
 }
 
 func isloSandboxToServer(sandbox *gosdk.SandboxResponse) Server {

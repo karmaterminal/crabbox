@@ -132,12 +132,14 @@ func TestResolveIsloLeaseIDPreservesClaimSlug(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gotLeaseID, name, slug, err := resolveIsloLeaseID("web", root, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if gotLeaseID != leaseID || name != "crabbox-repo-abcdef" || slug != "web" {
-		t.Fatalf("lease=%q name=%q slug=%q", gotLeaseID, name, slug)
+	for _, id := range []string{"web", leaseID, "crabbox-repo-abcdef"} {
+		gotLeaseID, name, slug, err := resolveIsloLeaseID(id, root, false)
+		if err != nil {
+			t.Fatalf("id=%q err=%v", id, err)
+		}
+		if gotLeaseID != leaseID || name != "crabbox-repo-abcdef" || slug != "web" {
+			t.Fatalf("id=%q lease=%q name=%q slug=%q", id, gotLeaseID, name, slug)
+		}
 	}
 }
 
