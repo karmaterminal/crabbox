@@ -50,17 +50,17 @@ func (b *backend) Acquire(ctx context.Context, req AcquireRequest) (LeaseTarget,
 	box, err := client.CreateBox(ctx, createRequest{TTL: ttl})
 	if err != nil {
 		if box.ID != "" {
-			_ = client.StopBox(context.Background(), box.ID)
+			_ = client.ReleaseBox(context.Background(), box.ID)
 		}
 		return LeaseTarget{}, err
 	}
 	if err := claimLeaseForRepoProviderScope(leaseID, slug, providerName, boxScope(box.ID), req.Repo.Root, cfg.IdleTimeout, req.Reclaim); err != nil {
-		_ = client.StopBox(context.Background(), box.ID)
+		_ = client.ReleaseBox(context.Background(), box.ID)
 		return LeaseTarget{}, err
 	}
 	if err := client.PrepareSSH(ctx, box.ID); err != nil {
 		if !req.Keep {
-			_ = client.StopBox(context.Background(), box.ID)
+			_ = client.ReleaseBox(context.Background(), box.ID)
 			removeLeaseClaim(leaseID)
 		}
 		return LeaseTarget{}, err
@@ -68,7 +68,7 @@ func (b *backend) Acquire(ctx context.Context, req AcquireRequest) (LeaseTarget,
 	lease, err := b.leaseFromBox(ctx, cfg, box, leaseID, slug, req.Keep, true)
 	if err != nil {
 		if !req.Keep {
-			_ = client.StopBox(context.Background(), box.ID)
+			_ = client.ReleaseBox(context.Background(), box.ID)
 			removeLeaseClaim(leaseID)
 		}
 		return LeaseTarget{}, err
@@ -213,7 +213,7 @@ func (b *backend) ReleaseLease(ctx context.Context, req ReleaseLeaseRequest) err
 	if boxID == "" {
 		return exit(2, "provider=%s requires an ASCII Box id to release", providerName)
 	}
-	if err := client.StopBox(ctx, boxID); err != nil {
+	if err := client.ReleaseBox(ctx, boxID); err != nil {
 		return err
 	}
 	removeLeaseClaim(req.Lease.LeaseID)

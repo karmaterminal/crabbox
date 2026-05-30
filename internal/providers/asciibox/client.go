@@ -19,7 +19,7 @@ type api interface {
 	PrepareSSH(context.Context, string) error
 	GetBox(context.Context, string) (boxData, error)
 	ListBoxes(context.Context) ([]boxData, error)
-	StopBox(context.Context, string) error
+	ReleaseBox(context.Context, string) error
 }
 
 type client struct {
@@ -131,10 +131,14 @@ func (c *client) ListBoxes(ctx context.Context) ([]boxData, error) {
 	return decodeBoxes([]byte(result.Stdout))
 }
 
-func (c *client) StopBox(ctx context.Context, id string) error {
-	result, err := c.run(ctx, "stop", id)
-	if err != nil {
-		return fmt.Errorf("ascii-box CLI stop failed: %s", c.formatError(result, err))
+func (c *client) ReleaseBox(ctx context.Context, id string) error {
+	stopResult, stopErr := c.run(ctx, "stop", id)
+	deleteResult, deleteErr := c.run(ctx, "delete", id)
+	if deleteErr != nil {
+		if stopErr != nil {
+			return fmt.Errorf("ascii-box CLI release failed: stop: %s; delete: %s", c.formatError(stopResult, stopErr), c.formatError(deleteResult, deleteErr))
+		}
+		return fmt.Errorf("ascii-box CLI delete failed: %s", c.formatError(deleteResult, deleteErr))
 	}
 	return nil
 }
@@ -271,9 +275,13 @@ func (c *client) formatError(result LocalCommandResult, err error) string {
 	return redactBoxSecrets(blank(message, "unknown error"))
 }
 
-var boxSecretRE = regexp.MustCompile(`box_[A-Za-z0-9_-]+`)
+var (
+	boxTokenParamRE = regexp.MustCompile(`(?i)([?&](?:box_token|token|access_token|auth_token)=)[^&\s"']+`)
+	boxSecretRE     = regexp.MustCompile(`box_[A-Za-z0-9_-]+`)
+)
 
 func redactBoxSecrets(value string) string {
+	value = boxTokenParamRE.ReplaceAllString(value, "${1}REDACTED")
 	return boxSecretRE.ReplaceAllString(value, "box_REDACTED")
 }
 

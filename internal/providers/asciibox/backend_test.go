@@ -63,7 +63,7 @@ func TestClientUsesOfficialAsciiBoxCLI(t *testing.T) {
 	if boxes, err := client.ListBoxes(context.Background()); err != nil || len(boxes) != 1 {
 		t.Fatalf("boxes=%#v err=%v", boxes, err)
 	}
-	if err := client.StopBox(context.Background(), "bx_1"); err != nil {
+	if err := client.ReleaseBox(context.Background(), "bx_1"); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
@@ -77,6 +77,8 @@ func TestClientUsesOfficialAsciiBoxCLI(t *testing.T) {
 		"box --no-update --json --api-url https://ascii.dev list",
 		"box --no-update --json config",
 		"box --no-update --json --api-url https://ascii.dev stop bx_1",
+		"box --no-update --json config",
+		"box --no-update --json --api-url https://ascii.dev delete bx_1",
 	}
 	if !reflect.DeepEqual(runner.commands, want) {
 		t.Fatalf("commands=%v want=%v", runner.commands, want)
@@ -118,6 +120,13 @@ func TestClientPollsPartialCreateOutput(t *testing.T) {
 	}
 	if !containsCommand(runner.commands, "box --no-update --json --api-url https://ascii.dev info bx_2") {
 		t.Fatalf("commands missing info poll: %v", runner.commands)
+	}
+}
+
+func TestRedactBoxSecrets(t *testing.T) {
+	got := redactBoxSecrets(`open https://box.ascii.dev/session?box_token=secret-value&ok=1 with box_realToken`)
+	if strings.Contains(got, "secret-value") || strings.Contains(got, "box_realToken") {
+		t.Fatalf("redacted=%q", got)
 	}
 }
 
@@ -368,7 +377,7 @@ func (f *fakeAPI) ListBoxes(context.Context) ([]boxData, error) {
 	return []boxData{f.box}, nil
 }
 
-func (f *fakeAPI) StopBox(_ context.Context, id string) error {
+func (f *fakeAPI) ReleaseBox(_ context.Context, id string) error {
 	f.deletedIDs = append(f.deletedIDs, id)
 	return nil
 }
@@ -413,6 +422,8 @@ func (r *fakeCommandRunner) Run(_ context.Context, req LocalCommandRequest) (Loc
 	case strings.Contains(joined, " list"):
 		return LocalCommandResult{Stdout: `{"boxes":[{"id":"bx_1","state":"ready","ip":"203.0.113.10"}]}`}, nil
 	case strings.Contains(joined, " stop bx_1"):
+		return LocalCommandResult{Stdout: `{"id":"bx_1","status":"deleted"}`}, nil
+	case strings.Contains(joined, " delete bx_1"):
 		return LocalCommandResult{Stdout: `{"id":"bx_1","status":"deleted"}`}, nil
 	default:
 		return LocalCommandResult{Stderr: "unexpected command"}, fmt.Errorf("unexpected command")

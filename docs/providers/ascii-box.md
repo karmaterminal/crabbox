@@ -86,8 +86,8 @@ CRABBOX_ASCII_BOX_WORKDIR
    existing lease/slug/id, then uses the standard SSH sync and run path.
 3. `crabbox status` resolves the local lease claim or raw Box id and reads Box
    state through `box info --json`.
-4. `crabbox stop` releases the Box with `box stop --json` and removes the local
-   lease claim.
+4. `crabbox stop` releases the Box with `box stop --json`, removes the Box
+   record with `box delete --json`, and removes the local lease claim.
 
 ## Limitations
 
