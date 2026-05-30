@@ -38,7 +38,7 @@ func (Provider) Spec() core.ProviderSpec {
 func (Provider) RegisterFlags(fs *flag.FlagSet, defaults core.Config) any {
 	return flagValues{
 		Backend: fs.String("azure-backend", defaults.AzureBackend, "Azure backend: vm or dynamic-sessions"),
-		OSDisk:  fs.String("azure-os-disk", defaults.AzureOSDisk, "Azure OS disk mode: managed, ephemeral, or auto"),
+		OSDisk:  fs.String("azure-os-disk", defaults.AzureOSDisk, "Azure OS disk mode: managed, ephemeral, ephemeral-preview, or auto"),
 	}
 }
 

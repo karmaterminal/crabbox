@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -163,6 +164,29 @@ func TestAzureVMSizeCandidatesForConfigHonorsARM64(t *testing.T) {
 	}
 }
 
+func TestAzureVMSizeCandidatesForConfigFiltersEphemeralPreview(t *testing.T) {
+	t.Parallel()
+	arm := baseConfig()
+	arm.Provider = "azure"
+	arm.TargetOS = targetLinux
+	arm.Architecture = ArchitectureARM64
+	arm.architectureExplicit = true
+	arm.Class = "standard"
+	arm.AzureOSDisk = AzureOSDiskEphemeralPreview
+	if got := azureVMSizeCandidatesForConfig(arm); !reflect.DeepEqual(got, []string{"Standard_D32pds_v6", "Standard_D16pds_v6"}) {
+		t.Fatalf("arm preview candidates=%v", got)
+	}
+	windows := baseConfig()
+	windows.Provider = "azure"
+	windows.TargetOS = targetWindows
+	windows.WindowsMode = windowsModeNormal
+	windows.Class = "standard"
+	windows.AzureOSDisk = AzureOSDiskEphemeralPreview
+	if got := azureVMSizeCandidatesForConfig(windows); !reflect.DeepEqual(got, []string{"Standard_D8ads_v6", "Standard_D8ds_v6", "Standard_D8ads_v5", "Standard_D8ds_v5", "Standard_D16ads_v6", "Standard_D16ds_v6", "Standard_D16ads_v5", "Standard_D16ds_v5"}) {
+		t.Fatalf("windows preview candidates=%v", got)
+	}
+}
+
 func TestAzureWindowsVMSizeCandidatesForClass(t *testing.T) {
 	t.Parallel()
 	got := azureWindowsVMSizeCandidatesForClass("beast")
@@ -253,14 +277,37 @@ func TestAzureSupportsEphemeralOS(t *testing.T) {
 	}
 }
 
+func TestAzureSupportsEphemeralFullCaching(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{
+		"Standard_D2ads_v6":  false,
+		"Standard_D4ads_v6":  false,
+		"Standard_D8ads_v6":  true,
+		"Standard_D32ads_v6": true,
+		"Standard_F32s_v2":   true,
+		"Standard_D32pds_v6": true,
+		"Standard_D32ps_v6":  false,
+		"Standard_D96pds_v6": true,
+		"Standard_D96ps_v6":  false,
+		"Standard_D32as_v6":  false,
+		"custom-size":        false,
+	}
+	for size, want := range cases {
+		if got := azureSupportsEphemeralFullCaching(size); got != want {
+			t.Fatalf("size=%q got %v want %v", size, got, want)
+		}
+	}
+}
+
 func TestNormalizeAzureOSDiskMode(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"":          AzureOSDiskManaged,
-		"auto":      AzureOSDiskManaged,
-		"MANAGED":   AzureOSDiskManaged,
-		"ephemeral": AzureOSDiskEphemeral,
-		" managed ": AzureOSDiskManaged,
+		"":                  AzureOSDiskManaged,
+		"auto":              AzureOSDiskManaged,
+		"MANAGED":           AzureOSDiskManaged,
+		"ephemeral":         AzureOSDiskEphemeral,
+		"ephemeral-preview": AzureOSDiskEphemeralPreview,
+		" managed ":         AzureOSDiskManaged,
 	}
 	for input, want := range cases {
 		got, err := NormalizeAzureOSDiskMode(input)
@@ -302,6 +349,21 @@ func TestAzureUseEphemeralOSDiskModes(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "ephemeral preview allows supported full caching sku",
+			cfg:  Config{AzureOSDisk: AzureOSDiskEphemeralPreview, ServerType: "Standard_D8ads_v6"},
+			want: true,
+		},
+		{
+			name:    "ephemeral preview rejects two core sku",
+			cfg:     Config{AzureOSDisk: AzureOSDiskEphemeralPreview, ServerType: "Standard_D2ads_v6"},
+			wantErr: true,
+		},
+		{
+			name:    "ephemeral preview rejects arm sku without local disk",
+			cfg:     Config{AzureOSDisk: AzureOSDiskEphemeralPreview, ServerType: "Standard_D32ps_v6"},
+			wantErr: true,
+		},
+		{
 			name:    "ephemeral rejects unsupported sku",
 			cfg:     Config{AzureOSDisk: AzureOSDiskEphemeral, ServerType: "Standard_D2as_v6"},
 			wantErr: true,
@@ -325,6 +387,71 @@ func TestAzureUseEphemeralOSDiskModes(t *testing.T) {
 				t.Fatalf("useEphemeralOSDisk=%t want %t", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAzureCreateServerWithFallbackRejectsEphemeralPreviewBeforeSharedInfra(t *testing.T) {
+	t.Parallel()
+	cfg := baseConfig()
+	cfg.Provider = "azure"
+	cfg.TargetOS = targetLinux
+	cfg.AzureLocation = "eastus"
+	cfg.AzureOSDisk = AzureOSDiskEphemeralPreview
+	cfg.ServerType = "Standard_D32ps_v6"
+	cfg.ServerTypeExplicit = true
+	client := &AzureClient{Location: "eastus"}
+	_, resolved, err := client.createServerWithFallbackInLocation(t.Context(), cfg, "ssh-ed25519 test", "cbx_123456789abc", "bad-preview", false, nil)
+	if err == nil {
+		t.Fatal("expected unsupported ephemeral-preview SKU to fail")
+	}
+	if !strings.Contains(err.Error(), "azure.osDisk=ephemeral-preview requires") {
+		t.Fatalf("error=%v, want ephemeral-preview validation", err)
+	}
+	if resolved.ServerType != "Standard_D32ps_v6" {
+		t.Fatalf("resolved server type=%q", resolved.ServerType)
+	}
+}
+
+func TestAzureEphemeralFullCachingVMPayload(t *testing.T) {
+	t.Parallel()
+	vm := armcompute.VirtualMachine{
+		Location: to.Ptr("eastus"),
+		Properties: &armcompute.VirtualMachineProperties{
+			StorageProfile: &armcompute.StorageProfile{
+				OSDisk: &armcompute.OSDisk{
+					CreateOption: to.Ptr(armcompute.DiskCreateOptionTypesFromImage),
+					Caching:      to.Ptr(armcompute.CachingTypesReadOnly),
+					DiffDiskSettings: &armcompute.DiffDiskSettings{
+						Option: to.Ptr(armcompute.DiffDiskOptionsLocal),
+					},
+				},
+			},
+		},
+	}
+	data, err := azureEphemeralFullCachingVMPayload(vm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	properties := payload["properties"].(map[string]any)
+	storageProfile := properties["storageProfile"].(map[string]any)
+	osDisk := storageProfile["osDisk"].(map[string]any)
+	diffDiskSettings := osDisk["diffDiskSettings"].(map[string]any)
+	if diffDiskSettings["enableFullCaching"] != true {
+		t.Fatalf("enableFullCaching=%v", diffDiskSettings["enableFullCaching"])
+	}
+	if diffDiskSettings["option"] != "Local" {
+		t.Fatalf("option=%v", diffDiskSettings["option"])
+	}
+	if osDisk["caching"] != "ReadOnly" {
+		t.Fatalf("caching=%v", osDisk["caching"])
+	}
+	managedDisk := osDisk["managedDisk"].(map[string]any)
+	if managedDisk["storageAccountType"] != "StandardSSD_LRS" {
+		t.Fatalf("managedDisk=%v", managedDisk)
 	}
 }
 

@@ -36,6 +36,7 @@ dynamic-sessions`; see the [providers overview](providers.md).
 crabbox warmup --provider azure --class beast
 crabbox warmup --provider azure --arch arm64 --class fast
 crabbox warmup --provider azure --class beast --azure-os-disk ephemeral
+crabbox warmup --provider azure --class beast --azure-os-disk ephemeral-preview
 crabbox run --provider azure --class standard -- pnpm test
 crabbox warmup --provider azure --target windows --class standard
 crabbox warmup --provider azure --target windows --desktop --class standard
@@ -101,8 +102,14 @@ Azure leases use managed `StandardSSD_LRS` OS disks by default (config
 by hand. Use `azure.osDisk: ephemeral` or `--azure-os-disk ephemeral` only for
 stateless leases that should use a local OS disk; provisioning fails if the
 selected SKU has no ephemeral OS support, and native Azure checkpoint/fork is
-unavailable. `azure.osDisk: auto` is accepted for compatibility and resolves to
-managed.
+unavailable.
+
+`azure.osDisk: ephemeral-preview` opts into Azure's public-preview
+full-caching mode for ephemeral OS disks. Crabbox sends Compute API
+`2025-04-01` with `diffDiskSettings.enableFullCaching: true`; for known
+Crabbox Azure fallback lists it skips 2-core, 4-core, and no-local-disk SKUs
+that the preview cannot support. `azure.osDisk: auto` is accepted for
+compatibility and resolves to managed.
 
 ## Quick Start With `az login`
 

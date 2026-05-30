@@ -1,16 +1,23 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6"
@@ -19,21 +26,23 @@ import (
 )
 
 const (
-	azureAddressSpace           = "10.42.0.0/16"
-	azureSubnetCIDR             = "10.42.0.0/24"
-	azureProviderTag            = "crabbox"
-	AzureOSDiskAuto             = "auto"
-	AzureOSDiskEphemeral        = "ephemeral"
-	AzureOSDiskManaged          = "managed"
-	defaultAzureLinuxImage      = "Canonical:ubuntu-26_04-lts:server:latest"
-	defaultAzureLinuxARM64Image = "Canonical:ubuntu-26_04-lts:server-arm64:latest"
-	azureNobleLinuxImage        = "Canonical:ubuntu-24_04-lts:server:latest"
-	azureNobleLinuxARM64Image   = "Canonical:ubuntu-24_04-lts:server-arm64:latest"
-	legacyAzureJammyImage       = "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest"
-	legacyAzureNobleGen2Image   = "Canonical:0001-com-ubuntu-server-noble:24_04-lts-gen2:latest"
-	defaultAzureWindowsImage    = "MicrosoftWindowsServer:windowsserver2022:2022-datacenter-smalldisk-g2:latest"
-	azureDeleteRetryDelay       = 15 * time.Second
-	azureDeleteRetryAttempts    = 13
+	azureAddressSpace             = "10.42.0.0/16"
+	azureSubnetCIDR               = "10.42.0.0/24"
+	azureProviderTag              = "crabbox"
+	AzureOSDiskAuto               = "auto"
+	AzureOSDiskEphemeral          = "ephemeral"
+	AzureOSDiskEphemeralPreview   = "ephemeral-preview"
+	AzureOSDiskManaged            = "managed"
+	azureComputePreviewAPIVersion = "2025-04-01"
+	defaultAzureLinuxImage        = "Canonical:ubuntu-26_04-lts:server:latest"
+	defaultAzureLinuxARM64Image   = "Canonical:ubuntu-26_04-lts:server-arm64:latest"
+	azureNobleLinuxImage          = "Canonical:ubuntu-24_04-lts:server:latest"
+	azureNobleLinuxARM64Image     = "Canonical:ubuntu-24_04-lts:server-arm64:latest"
+	legacyAzureJammyImage         = "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest"
+	legacyAzureNobleGen2Image     = "Canonical:0001-com-ubuntu-server-noble:24_04-lts-gen2:latest"
+	defaultAzureWindowsImage      = "MicrosoftWindowsServer:windowsserver2022:2022-datacenter-smalldisk-g2:latest"
+	azureDeleteRetryDelay         = 15 * time.Second
+	azureDeleteRetryAttempts      = 13
 )
 
 type AzureClient struct {
@@ -188,7 +197,12 @@ func azureVMSizeCandidatesForClass(class string) []string {
 }
 
 func azureVMSizeCandidatesForConfig(cfg Config) []string {
-	return azureVMSizeCandidatesForTargetModeArchitectureClass(cfg.TargetOS, cfg.WindowsMode, effectiveArchitectureForConfig(cfg), cfg.Class)
+	candidates := azureVMSizeCandidatesForTargetModeArchitectureClass(cfg.TargetOS, cfg.WindowsMode, effectiveArchitectureForConfig(cfg), cfg.Class)
+	mode, err := NormalizeAzureOSDiskMode(cfg.AzureOSDisk)
+	if err != nil || !azureOSDiskUsesFullCaching(mode) {
+		return candidates
+	}
+	return azureEphemeralFullCachingCandidates(cfg, candidates)
 }
 
 func azureVMSizeCandidatesForTargetModeArchitectureClass(target, windowsMode, architecture, class string) []string {
@@ -258,6 +272,30 @@ func azureWindowsVMSizeCandidatesForClass(class string) []string {
 	}
 }
 
+func azureEphemeralFullCachingCandidates(cfg Config, candidates []string) []string {
+	filtered := filterAzureEphemeralFullCachingCandidates(candidates)
+	if len(filtered) > 0 {
+		return filtered
+	}
+	if cfg.TargetOS == targetWindows {
+		return filterAzureEphemeralFullCachingCandidates(appendUniqueStrings(
+			azureWindowsVMSizeCandidatesForClass("large"),
+			azureWindowsVMSizeCandidatesForClass("beast")...,
+		))
+	}
+	return candidates
+}
+
+func filterAzureEphemeralFullCachingCandidates(candidates []string) []string {
+	var filtered []string
+	for _, candidate := range candidates {
+		if azureSupportsEphemeralFullCaching(candidate) {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
+}
+
 func azureSupportsEphemeralOS(vmSize string) bool {
 	normalized := strings.ToLower(vmSize)
 	if strings.HasPrefix(normalized, "standard_f") && strings.HasSuffix(normalized, "s_v2") {
@@ -273,6 +311,36 @@ func azureSupportsEphemeralOS(vmSize string) bool {
 	return false
 }
 
+func azureSupportsEphemeralFullCaching(vmSize string) bool {
+	if !azureSupportsEphemeralOS(vmSize) {
+		return false
+	}
+	cores, ok := azureVMSizeVCPUCount(vmSize)
+	if !ok {
+		return false
+	}
+	return cores > 4
+}
+
+func azureVMSizeVCPUCount(vmSize string) (int, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(vmSize))
+	if !strings.HasPrefix(normalized, "standard_") {
+		return 0, false
+	}
+	for i := len("standard_"); i < len(normalized); i++ {
+		if normalized[i] < '0' || normalized[i] > '9' {
+			continue
+		}
+		j := i + 1
+		for j < len(normalized) && normalized[j] >= '0' && normalized[j] <= '9' {
+			j++
+		}
+		cores, err := strconv.Atoi(normalized[i:j])
+		return cores, err == nil
+	}
+	return 0, false
+}
+
 func NormalizeAzureOSDiskMode(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "":
@@ -281,26 +349,47 @@ func NormalizeAzureOSDiskMode(value string) (string, error) {
 		return AzureOSDiskManaged, nil
 	case AzureOSDiskEphemeral:
 		return AzureOSDiskEphemeral, nil
+	case AzureOSDiskEphemeralPreview:
+		return AzureOSDiskEphemeralPreview, nil
 	case AzureOSDiskManaged:
 		return AzureOSDiskManaged, nil
 	default:
-		return "", exit(2, "azure.osDisk must be auto, managed, or ephemeral")
+		return "", exit(2, "azure.osDisk must be auto, managed, ephemeral, or ephemeral-preview")
 	}
 }
 
+func azureOSDiskIsEphemeral(mode string) bool {
+	return mode == AzureOSDiskEphemeral || mode == AzureOSDiskEphemeralPreview
+}
+
+func azureOSDiskUsesFullCaching(mode string) bool {
+	return mode == AzureOSDiskEphemeralPreview
+}
+
 func (c *AzureClient) useEphemeralOSDisk(ctx context.Context, cfg Config) (bool, error) {
-	mode, err := NormalizeAzureOSDiskMode(cfg.AzureOSDisk)
+	mode, err := c.validatedAzureOSDiskMode(ctx, cfg)
 	if err != nil {
 		return false, err
 	}
-	if mode != AzureOSDiskEphemeral {
-		return false, nil
+	return azureOSDiskIsEphemeral(mode), nil
+}
+
+func (c *AzureClient) validatedAzureOSDiskMode(ctx context.Context, cfg Config) (string, error) {
+	mode, err := NormalizeAzureOSDiskMode(cfg.AzureOSDisk)
+	if err != nil {
+		return "", err
+	}
+	if !azureOSDiskIsEphemeral(mode) {
+		return mode, nil
 	}
 	supported := c.supportsEphemeralOS(ctx, cfg.ServerType)
 	if !supported {
-		return false, exit(2, "azure.osDisk=ephemeral requires an Azure VM size with ephemeral OS disk support; %s is not supported", cfg.ServerType)
+		return "", exit(2, "azure.osDisk=%s requires an Azure VM size with ephemeral OS disk support; %s is not supported", mode, cfg.ServerType)
 	}
-	return supported, nil
+	if azureOSDiskUsesFullCaching(mode) && !azureSupportsEphemeralFullCaching(cfg.ServerType) {
+		return "", exit(2, "azure.osDisk=ephemeral-preview requires a full-caching preview Azure VM size; %s is not supported because preview full caching requires more than 4 vCPUs and local storage larger than 2x the OS disk plus 1 GiB", cfg.ServerType)
+	}
+	return mode, nil
 }
 
 func (c *AzureClient) supportsEphemeralOS(ctx context.Context, vmSize string) bool {
@@ -617,9 +706,6 @@ func (c *AzureClient) CreateServerWithFallback(ctx context.Context, cfg Config, 
 }
 
 func (c *AzureClient) createServerWithFallbackInLocation(ctx context.Context, cfg Config, publicKey, leaseID, slug string, keep bool, logf func(string, ...any)) (Server, Config, error) {
-	if err := c.EnsureSharedInfra(ctx); err != nil {
-		return Server{}, cfg, err
-	}
 	var candidates []string
 	if cfg.ServerTypeExplicit && cfg.ServerType != "" {
 		candidates = []string{cfg.ServerType}
@@ -630,11 +716,21 @@ func (c *AzureClient) createServerWithFallbackInLocation(ctx context.Context, cf
 		}
 	}
 	var errs []error
+	sharedInfraReady := false
 	for i, vmSize := range candidates {
 		next := cfg
 		next.ServerType = vmSize
 		if i > 0 && logf != nil {
 			logf("fallback provisioning type=%s after quota/capacity rejection\n", vmSize)
+		}
+		if _, err := c.validatedAzureOSDiskMode(ctx, next); err != nil {
+			return Server{}, next, err
+		}
+		if !sharedInfraReady {
+			if err := c.EnsureSharedInfra(ctx); err != nil {
+				return Server{}, next, err
+			}
+			sharedInfraReady = true
 		}
 		server, err := c.createServer(ctx, next, publicKey, leaseID, slug, keep)
 		if err == nil {
@@ -652,6 +748,15 @@ func (c *AzureClient) createServerWithFallbackInLocation(ctx context.Context, cf
 			next.Capacity.Market = "on-demand"
 			if logf != nil {
 				logf("fallback provisioning type=%s market=on-demand after spot rejection\n", vmSize)
+			}
+			if _, err := c.validatedAzureOSDiskMode(ctx, next); err != nil {
+				return Server{}, next, err
+			}
+			if !sharedInfraReady {
+				if err := c.EnsureSharedInfra(ctx); err != nil {
+					return Server{}, next, err
+				}
+				sharedInfraReady = true
 			}
 			server, err := c.createServer(ctx, next, publicKey, leaseID, slug, keep)
 			if err == nil {
@@ -776,14 +881,19 @@ func (c *AzureClient) createServerSteps(ctx context.Context, cfg Config, publicK
 		Name:         to.Ptr(diskName),
 		CreateOption: to.Ptr(armcompute.DiskCreateOptionTypesFromImage),
 	}
-	useEphemeralOSDisk, err := c.useEphemeralOSDisk(ctx, cfg)
+	osDiskMode, err := c.validatedAzureOSDiskMode(ctx, cfg)
 	if err != nil {
 		return Server{}, err
 	}
-	if useEphemeralOSDisk {
+	if azureOSDiskIsEphemeral(osDiskMode) {
 		osDisk.Caching = to.Ptr(armcompute.CachingTypesReadOnly)
 		osDisk.DiffDiskSettings = &armcompute.DiffDiskSettings{
 			Option: to.Ptr(armcompute.DiffDiskOptionsLocal),
+		}
+		if azureOSDiskUsesFullCaching(osDiskMode) {
+			osDisk.ManagedDisk = &armcompute.ManagedDiskParameters{
+				StorageAccountType: to.Ptr(armcompute.StorageAccountTypesStandardSSDLRS),
+			}
 		}
 	} else {
 		osDisk.Caching = to.Ptr(armcompute.CachingTypesReadWrite)
@@ -814,30 +924,238 @@ func (c *AzureClient) createServerSteps(ctx context.Context, cfg Config, publicK
 	if strings.EqualFold(cfg.Capacity.Market, "spot") {
 		applyAzureSpotCapacity(vmProperties)
 	}
-	vmPoller, err := c.vmc.BeginCreateOrUpdate(ctx, c.ResourceGroup, name, armcompute.VirtualMachine{
+	vm := armcompute.VirtualMachine{
 		Location:   to.Ptr(c.Location),
 		Tags:       tags,
 		Properties: vmProperties,
-	}, nil)
-	if err != nil {
-		return Server{}, fmt.Errorf("begin vm: %w", err)
 	}
-	vmResp, err := vmPoller.PollUntilDone(ctx, nil)
-	if err != nil {
-		return Server{}, fmt.Errorf("vm: %w", err)
+	var createdVM armcompute.VirtualMachine
+	if azureOSDiskUsesFullCaching(osDiskMode) {
+		createdVM, err = c.createVMWithEphemeralFullCaching(ctx, name, vm)
+		if err != nil {
+			return Server{}, err
+		}
+	} else {
+		vmPoller, err := c.vmc.BeginCreateOrUpdate(ctx, c.ResourceGroup, name, vm, nil)
+		if err != nil {
+			return Server{}, fmt.Errorf("begin vm: %w", err)
+		}
+		vmResp, err := vmPoller.PollUntilDone(ctx, nil)
+		if err != nil {
+			return Server{}, fmt.Errorf("vm: %w", err)
+		}
+		createdVM = vmResp.VirtualMachine
 	}
 	if cfg.TargetOS == targetWindows {
 		if err := c.installWindowsBootstrapExtension(ctx, name, tags); err != nil {
 			return Server{}, err
 		}
 	}
-	return azureVMToServer(vmResp.VirtualMachine, "", ""), nil
+	return azureVMToServer(createdVM, "", ""), nil
 }
 
 func applyAzureSpotCapacity(vmProperties *armcompute.VirtualMachineProperties) {
 	vmProperties.Priority = to.Ptr(armcompute.VirtualMachinePriorityTypesSpot)
 	vmProperties.EvictionPolicy = to.Ptr(armcompute.VirtualMachineEvictionPolicyTypesDelete)
 	vmProperties.BillingProfile = &armcompute.BillingProfile{MaxPrice: to.Ptr(float64(-1))}
+}
+
+func (c *AzureClient) createVMWithEphemeralFullCaching(ctx context.Context, name string, vm armcompute.VirtualMachine) (armcompute.VirtualMachine, error) {
+	payload, err := azureEphemeralFullCachingVMPayload(vm)
+	if err != nil {
+		return armcompute.VirtualMachine{}, err
+	}
+	path := azureResourcePath(
+		"subscriptions", c.SubscriptionID,
+		"resourceGroups", c.ResourceGroup,
+		"providers", "Microsoft.Compute",
+		"virtualMachines", name,
+	)
+	respBody, headers, status, err := c.azureARM(ctx, http.MethodPut, path, azureComputePreviewAPIVersion, payload)
+	if err != nil {
+		return armcompute.VirtualMachine{}, fmt.Errorf("begin vm: %w", err)
+	}
+	if pollURL := azurePollURL(headers); pollURL != "" {
+		if err := c.pollAzureARMOperation(ctx, pollURL); err != nil {
+			return armcompute.VirtualMachine{}, fmt.Errorf("vm: %w", err)
+		}
+	}
+	if len(respBody) == 0 || status == http.StatusAccepted {
+		respBody, _, _, err = c.azureARM(ctx, http.MethodGet, path, azureComputePreviewAPIVersion, nil)
+		if err != nil {
+			return armcompute.VirtualMachine{}, fmt.Errorf("get vm: %w", err)
+		}
+	}
+	var created armcompute.VirtualMachine
+	if err := json.Unmarshal(respBody, &created); err != nil {
+		return armcompute.VirtualMachine{}, fmt.Errorf("decode vm: %w", err)
+	}
+	return created, nil
+}
+
+func azureEphemeralFullCachingVMPayload(vm armcompute.VirtualMachine) ([]byte, error) {
+	data, err := json.Marshal(vm)
+	if err != nil {
+		return nil, fmt.Errorf("encode vm: %w", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("decode vm payload: %w", err)
+	}
+	properties, ok := payload["properties"].(map[string]any)
+	if !ok {
+		return nil, errors.New("azure vm payload missing properties")
+	}
+	storageProfile, ok := properties["storageProfile"].(map[string]any)
+	if !ok {
+		return nil, errors.New("azure vm payload missing storageProfile")
+	}
+	osDisk, ok := storageProfile["osDisk"].(map[string]any)
+	if !ok {
+		return nil, errors.New("azure vm payload missing osDisk")
+	}
+	diffDiskSettings, ok := osDisk["diffDiskSettings"].(map[string]any)
+	if !ok {
+		diffDiskSettings = map[string]any{}
+		osDisk["diffDiskSettings"] = diffDiskSettings
+	}
+	diffDiskSettings["option"] = "Local"
+	diffDiskSettings["enableFullCaching"] = true
+	osDisk["caching"] = "ReadOnly"
+	osDisk["managedDisk"] = map[string]any{"storageAccountType": "StandardSSD_LRS"}
+	return json.Marshal(payload)
+}
+
+func (c *AzureClient) azureARM(ctx context.Context, method, path, apiVersion string, body []byte) ([]byte, http.Header, int, error) {
+	token, err := c.cred.GetToken(ctx, policy.TokenRequestOptions{
+		Scopes: []string{"https://management.azure.com/.default"},
+	})
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	endpoint := "https://management.azure.com" + path
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	q := u.Query()
+	q.Set("api-version", apiVersion)
+	u.RawQuery = q.Encode()
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), reader)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token.Token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer resp.Body.Close()
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+	if readErr != nil {
+		return nil, resp.Header, resp.StatusCode, readErr
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, resp.Header, resp.StatusCode, fmt.Errorf("azure %s %s: http %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	return respBody, resp.Header, resp.StatusCode, nil
+}
+
+func (c *AzureClient) pollAzureARMOperation(ctx context.Context, pollURL string) error {
+	for {
+		status, retryAfter, err := c.azureARMOperationStatus(ctx, pollURL)
+		if err != nil {
+			return err
+		}
+		switch strings.ToLower(status) {
+		case "succeeded":
+			return nil
+		case "failed", "canceled", "cancelled":
+			return fmt.Errorf("operation %s", status)
+		}
+		delay := azureDeleteRetryDelay
+		if retryAfter > 0 {
+			delay = retryAfter
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (c *AzureClient) azureARMOperationStatus(ctx context.Context, pollURL string) (string, time.Duration, error) {
+	token, err := c.cred.GetToken(ctx, policy.TokenRequestOptions{
+		Scopes: []string{"https://management.azure.com/.default"},
+	})
+	if err != nil {
+		return "", 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)
+	if err != nil {
+		return "", 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+	defer resp.Body.Close()
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+	if readErr != nil {
+		return "", 0, readErr
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", 0, fmt.Errorf("azure poll %s: http %d: %s", pollURL, resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	var operation struct {
+		Status string `json:"status"`
+		Error  any    `json:"error"`
+	}
+	if err := json.Unmarshal(respBody, &operation); err != nil {
+		return "", 0, fmt.Errorf("decode operation: %w", err)
+	}
+	if operation.Status == "" {
+		return "succeeded", 0, nil
+	}
+	if strings.EqualFold(operation.Status, "failed") && operation.Error != nil {
+		data, _ := json.Marshal(operation.Error)
+		return operation.Status, 0, fmt.Errorf("operation failed: %s", data)
+	}
+	return operation.Status, retryAfterDuration(resp.Header.Get("Retry-After")), nil
+}
+
+func azurePollURL(headers http.Header) string {
+	if value := strings.TrimSpace(headers.Get("Azure-AsyncOperation")); value != "" {
+		return value
+	}
+	return strings.TrimSpace(headers.Get("Location"))
+}
+
+func retryAfterDuration(value string) time.Duration {
+	seconds, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func azureResourcePath(parts ...string) string {
+	escaped := make([]string, 0, len(parts))
+	for _, part := range parts {
+		escaped = append(escaped, url.PathEscape(part))
+	}
+	return "/" + strings.Join(escaped, "/")
 }
 
 func (c *AzureClient) azureOSProfile(cfg Config, publicKey, name, leaseID string) (*armcompute.OSProfile, error) {

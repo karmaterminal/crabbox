@@ -1,8 +1,16 @@
 import { azureWindowsBootstrapPowerShell, cloudInit } from "./bootstrap";
-import { azureVMSizeCandidatesForTargetClass, sshPorts, type LeaseConfig } from "./config";
+import {
+  azureSupportsEphemeralFullCaching,
+  azureSupportsEphemeralOS,
+  azureVMSizeCandidatesForTargetClass,
+  sshPorts,
+  type LeaseConfig,
+} from "./config";
 import { leaseProviderLabels } from "./provider-labels";
 import { leaseProviderName } from "./slug";
 import type { Env, ProviderImage, ProviderMachine, ProvisioningAttempt } from "./types";
+
+export { azureSupportsEphemeralFullCaching, azureSupportsEphemeralOS } from "./config";
 
 const ADDRESS_SPACE = "10.42.0.0/16";
 const SUBNET_CIDR = "10.42.0.0/24";
@@ -12,6 +20,7 @@ const API_VERSIONS = {
   compute: "2024-07-01",
   disks: "2024-03-02",
 };
+const COMPUTE_FULL_CACHING_PREVIEW_API_VERSION = "2025-04-01";
 const DELETE_RETRY_ATTEMPTS = 13;
 const DELETE_RETRY_DELAY_MS = 15_000;
 const MIN_LRO_POLL_INTERVAL_MS = 15_000;
@@ -43,7 +52,7 @@ interface AzureVM {
       osDisk?: {
         managedDisk?: { id?: string };
         osType?: string;
-        diffDiskSettings?: { option?: string; placement?: string };
+        diffDiskSettings?: { option?: string; placement?: string; enableFullCaching?: boolean };
       };
     };
   };
@@ -243,7 +252,6 @@ export class AzureClient {
     market: string;
     attempts?: ProvisioningAttempt[];
   }> {
-    const infra = await this.ensureSharedInfra(location, config);
     const candidates =
       config.serverTypeExplicit && config.serverType
         ? [config.serverType]
@@ -254,21 +262,24 @@ export class AzureClient {
               config.class,
               config.windowsMode,
               config.architecture,
+              config.azureOSDisk,
             ),
           );
     const failures: string[] = [];
     const attempts: ProvisioningAttempt[] = [];
+    let infra: AzureSharedInfraNames | undefined;
     for (const vmSize of candidates) {
+      const nextConfig = { ...config, serverType: vmSize };
+      // Validate preview-only OS disk requirements before allocating network resources.
+      // oxlint-disable-next-line eslint/no-await-in-loop -- SKU fallback must stay sequential.
+      await this.validateOSDiskMode(nextConfig, location);
       try {
+        if (!infra) {
+          // oxlint-disable-next-line eslint/no-await-in-loop -- shared infra is created once, after config validation.
+          infra = await this.ensureSharedInfra(location, config);
+        }
         // oxlint-disable-next-line eslint/no-await-in-loop -- SKU fallback must stay sequential.
-        const server = await this.createVM(
-          { ...config, serverType: vmSize },
-          location,
-          leaseID,
-          slug,
-          owner,
-          infra,
-        );
+        const server = await this.createVM(nextConfig, location, leaseID, slug, owner, infra);
         return attempts.length > 0
           ? { server, serverType: vmSize, market: config.capacityMarket, attempts }
           : { server, serverType: vmSize, market: config.capacityMarket };
@@ -287,10 +298,20 @@ export class AzureClient {
     }
     if (config.capacityMarket === "spot" && config.capacityFallback.startsWith("on-demand")) {
       for (const vmSize of candidates) {
+        const nextConfig: LeaseConfig = {
+          ...config,
+          capacityMarket: "on-demand",
+          serverType: vmSize,
+        };
+        // oxlint-disable-next-line eslint/no-await-in-loop -- market fallback must preserve ordered capacity preference.
+        await this.validateOSDiskMode(nextConfig, location);
         try {
-          // oxlint-disable-next-line eslint/no-await-in-loop -- market fallback must preserve ordered capacity preference.
+          if (!infra) {
+            // oxlint-disable-next-line eslint/no-await-in-loop -- shared infra is created once, after config validation.
+            infra = await this.ensureSharedInfra(location, config);
+          }
           const server = await this.createVM(
-            { ...config, capacityMarket: "on-demand", serverType: vmSize },
+            nextConfig,
             location,
             leaseID,
             slug,
@@ -694,7 +715,12 @@ export class AzureClient {
       };
       if (await this.useEphemeralOSDisk(config, location)) {
         osDisk["caching"] = "ReadOnly";
-        osDisk["diffDiskSettings"] = { option: "Local" };
+        const diffDiskSettings: Record<string, unknown> = { option: "Local" };
+        if (azureOSDiskUsesFullCaching(config.azureOSDisk)) {
+          diffDiskSettings["enableFullCaching"] = true;
+          osDisk["managedDisk"] = { storageAccountType: "StandardSSD_LRS" };
+        }
+        osDisk["diffDiskSettings"] = diffDiskSettings;
       } else {
         osDisk["caching"] = "ReadWrite";
         osDisk["managedDisk"] = { storageAccountType: "StandardSSD_LRS" };
@@ -712,7 +738,7 @@ export class AzureClient {
     await this.arm(
       "PUT",
       vmPath(this.resourceGroup, name),
-      API_VERSIONS.compute,
+      azureComputeAPIVersionForOSDisk(config.azureOSDisk),
       {
         location,
         tags,
@@ -1078,12 +1104,21 @@ export class AzureClient {
   }
 
   private async useEphemeralOSDisk(config: LeaseConfig, location: string): Promise<boolean> {
+    return await this.validateOSDiskMode(config, location);
+  }
+
+  private async validateOSDiskMode(config: LeaseConfig, location: string): Promise<boolean> {
     const mode = config.azureOSDisk;
-    if (mode !== "ephemeral") return false;
+    if (!azureOSDiskIsEphemeral(mode)) return false;
     const supported = await this.supportsEphemeralOS(config.serverType, location);
     if (!supported) {
       throw new Error(
-        `azureOSDisk=ephemeral requires an Azure VM size with ephemeral OS disk support; ${config.serverType} is not supported`,
+        `azureOSDisk=${mode} requires an Azure VM size with ephemeral OS disk support; ${config.serverType} is not supported`,
+      );
+    }
+    if (azureOSDiskUsesFullCaching(mode) && !azureSupportsEphemeralFullCaching(config.serverType)) {
+      throw new Error(
+        `azureOSDisk=ephemeral-preview requires a full-caching preview Azure VM size; ${config.serverType} is not supported because preview full caching requires more than 4 vCPUs and local storage larger than 2x the OS disk plus 1 GiB`,
       );
     }
     return supported;
@@ -1374,21 +1409,18 @@ export function azureLROPollIntervalMS(retryAfter: string | null): number {
   return Math.max(seconds * 1000, MIN_LRO_POLL_INTERVAL_MS);
 }
 
-export function azureSupportsEphemeralOS(vmSize: string): boolean {
-  const normalized = vmSize.toLowerCase();
-  if (normalized.startsWith("standard_f") && normalized.endsWith("s_v2")) {
-    return true;
-  }
-  if (normalized.includes("pds_v6") || normalized.includes("plds_v6")) {
-    return true;
-  }
-  if (
-    (normalized.startsWith("standard_d") || normalized.startsWith("standard_e")) &&
-    (normalized.includes("ds_v5") || normalized.includes("ds_v6"))
-  ) {
-    return true;
-  }
-  return false;
+function azureOSDiskIsEphemeral(mode: string): boolean {
+  return mode === "ephemeral" || mode === "ephemeral-preview";
+}
+
+function azureOSDiskUsesFullCaching(mode: string): boolean {
+  return mode === "ephemeral-preview";
+}
+
+function azureComputeAPIVersionForOSDisk(mode: string): string {
+  return azureOSDiskUsesFullCaching(mode)
+    ? COMPUTE_FULL_CACHING_PREVIEW_API_VERSION
+    : API_VERSIONS.compute;
 }
 
 function azureSKUCapabilityTrue(

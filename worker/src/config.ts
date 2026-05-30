@@ -84,7 +84,7 @@ export interface LeaseConfig {
   exposedPorts: string[];
 }
 
-export type AzureOSDiskMode = "managed" | "ephemeral";
+export type AzureOSDiskMode = "managed" | "ephemeral" | "ephemeral-preview";
 export type Architecture = "amd64" | "arm64";
 
 export interface LeaseConfigDefaults {
@@ -156,9 +156,10 @@ export function leaseConfig(input: LeaseRequest, defaults: LeaseConfigDefaults =
     }
   }
   const machineClass = input.class ?? "beast";
+  const azureOSDisk = normalizeAzureOSDiskMode(input.azureOSDisk ?? defaults.azureOSDisk);
   const serverType =
     input.serverType ??
-    serverTypeForConfig(provider, target, windowsMode, machineClass, architecture);
+    serverTypeForConfig(provider, target, windowsMode, machineClass, architecture, azureOSDisk);
   if (input.serverType) {
     validateArchitectureServerType(
       provider,
@@ -222,7 +223,7 @@ export function leaseConfig(input: LeaseRequest, defaults: LeaseConfigDefaults =
           : (linuxOSImage?.azureImage ?? "")
         : ""),
     azureSnapshot: input.azureSnapshot ?? "",
-    azureOSDisk: normalizeAzureOSDiskMode(input.azureOSDisk ?? defaults.azureOSDisk),
+    azureOSDisk,
     gcpProject: input.gcpProject ?? "",
     gcpZone: input.gcpZone ?? "",
     gcpImage: input.gcpImage ?? (osExplicit ? (linuxOSImage?.gcpImage ?? "") : ""),
@@ -379,8 +380,10 @@ export function normalizeAzureOSDiskMode(value: string | undefined): AzureOSDisk
       return "managed";
     case "ephemeral":
       return "ephemeral";
+    case "ephemeral-preview":
+      return "ephemeral-preview";
     default:
-      throw new Error("azureOSDisk must be auto, managed, or ephemeral");
+      throw new Error("azureOSDisk must be auto, managed, ephemeral, or ephemeral-preview");
   }
 }
 
@@ -554,6 +557,7 @@ export function serverTypeForConfig(
   windowsMode: WindowsMode,
   machineClass: string,
   architecture: Architecture = "amd64",
+  azureOSDisk: AzureOSDiskMode = "managed",
 ): string {
   if (provider === "aws") {
     return (
@@ -563,8 +567,13 @@ export function serverTypeForConfig(
   }
   if (provider === "azure") {
     return (
-      azureVMSizeCandidatesForTargetClass(target, machineClass, windowsMode, architecture)[0] ??
-      machineClass
+      azureVMSizeCandidatesForTargetClass(
+        target,
+        machineClass,
+        windowsMode,
+        architecture,
+        azureOSDisk,
+      )[0] ?? machineClass
     );
   }
   if (provider === "gcp") {
@@ -612,14 +621,20 @@ export function azureVMSizeCandidatesForTargetClass(
   machineClass: string,
   windowsMode: WindowsMode = "normal",
   architecture: Architecture = "amd64",
+  azureOSDisk: AzureOSDiskMode = "managed",
 ): string[] {
+  let candidates: string[];
   if (target === "linux") {
-    return azureVMSizeCandidatesForArchitectureClass(architecture, machineClass);
+    candidates = azureVMSizeCandidatesForArchitectureClass(architecture, machineClass);
+  } else if (target === "windows" && (windowsMode === "normal" || windowsMode === "wsl2")) {
+    candidates = azureWindowsVMSizeCandidatesForClass(machineClass);
+  } else {
+    candidates = [machineClass];
   }
-  if (target === "windows" && (windowsMode === "normal" || windowsMode === "wsl2")) {
-    return azureWindowsVMSizeCandidatesForClass(machineClass);
+  if (azureOSDisk === "ephemeral-preview") {
+    return azureEphemeralFullCachingCandidates(target, candidates);
   }
-  return [machineClass];
+  return candidates;
 }
 
 export function azureVMSizeCandidatesForClass(machineClass: string): string[] {
@@ -726,6 +741,52 @@ export function azureVMSizeIsARM64(vmSize: string): boolean {
     normalized.includes("pls_v6") ||
     normalized.includes("plds_v6")
   );
+}
+
+export function azureSupportsEphemeralOS(vmSize: string): boolean {
+  const normalized = vmSize.toLowerCase();
+  if (normalized.startsWith("standard_f") && normalized.endsWith("s_v2")) {
+    return true;
+  }
+  if (normalized.includes("pds_v6") || normalized.includes("plds_v6")) {
+    return true;
+  }
+  if (
+    (normalized.startsWith("standard_d") || normalized.startsWith("standard_e")) &&
+    (normalized.includes("ds_v5") || normalized.includes("ds_v6"))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function azureSupportsEphemeralFullCaching(vmSize: string): boolean {
+  if (!azureSupportsEphemeralOS(vmSize)) return false;
+  const cores = azureVMSizeVCPUCount(vmSize);
+  return cores !== undefined && cores > 4;
+}
+
+function azureVMSizeVCPUCount(vmSize: string): number | undefined {
+  const match = vmSize
+    .trim()
+    .toLowerCase()
+    .match(/^standard_[a-z]+(\d+)/);
+  if (!match?.[1]) return undefined;
+  return Number.parseInt(match[1], 10);
+}
+
+function azureEphemeralFullCachingCandidates(target: TargetOS, candidates: string[]): string[] {
+  const filtered = candidates.filter(azureSupportsEphemeralFullCaching);
+  if (filtered.length > 0) return filtered;
+  if (target === "windows") {
+    return [
+      ...azureWindowsVMSizeCandidatesForClass("large"),
+      ...azureWindowsVMSizeCandidatesForClass("beast"),
+    ]
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .filter(azureSupportsEphemeralFullCaching);
+  }
+  return candidates;
 }
 
 export function azureWindowsVMSizeCandidatesForClass(machineClass: string): string[] {

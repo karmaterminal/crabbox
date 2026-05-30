@@ -36,6 +36,7 @@ Azure supports both execution modes:
 crabbox warmup --provider azure --class beast
 crabbox warmup --provider azure --arch arm64 --class fast
 crabbox warmup --provider azure --class beast --azure-os-disk ephemeral
+crabbox warmup --provider azure --class beast --azure-os-disk ephemeral-preview
 crabbox run --provider azure --class standard -- pnpm test
 crabbox run --provider azure --azure-backend dynamic-sessions -- pnpm test
 crabbox warmup --provider azure --target windows --class standard
@@ -50,7 +51,9 @@ crabbox cleanup --provider azure
 `--type` is exact (for example `--type Standard_D32ads_v6`). Use `--class` when
 you want SKU fallback. Azure leases use managed OS disks by default, so native
 checkpoint/fork works without extra flags. Pass `--azure-os-disk ephemeral` only
-for stateless leases that do not need native checkpoint/fork.
+for stateless leases that do not need native checkpoint/fork. Pass
+`--azure-os-disk ephemeral-preview` to opt into Azure's public-preview
+full-caching mode for ephemeral OS disks.
 
 ## Backend selection
 
@@ -99,13 +102,17 @@ ARM64 is not supported for native Windows, WSL2, or macOS targets.
 VM public IP, `private` uses the NIC private IP from the vnet. Use `private` when
 connecting through a VPN to the Azure virtual network.
 
-`azure.osDisk` accepts `managed`, `ephemeral`, or `auto`:
+`azure.osDisk` accepts `managed`, `ephemeral`, `ephemeral-preview`, or `auto`:
 
 - `managed` (default) provisions a managed `StandardSSD_LRS` OS disk so Azure
   native disk-snapshot checkpoints work.
 - `ephemeral` opts into a local OS disk. It requires a SKU with ephemeral OS disk
   support, fails during provisioning when the selected SKU cannot support it, and
   disables native Azure checkpoint/fork.
+- `ephemeral-preview` enables Azure ephemeral OS disk full caching with Compute
+  API `2025-04-01`. It is public preview, has the same checkpoint/fork limits as
+  `ephemeral`, and skips known unsupported 2-core, 4-core, and no-local-disk
+  Azure SKUs from Crabbox fallback lists.
 - `auto` is accepted for compatibility and resolves to `managed`.
 
 ### Environment variables
@@ -121,7 +128,7 @@ CRABBOX_AZURE_BACKEND            # vm | dynamic-sessions
 CRABBOX_AZURE_LOCATION
 CRABBOX_AZURE_RESOURCE_GROUP
 CRABBOX_AZURE_IMAGE
-CRABBOX_AZURE_OS_DISK            # managed | ephemeral | auto
+CRABBOX_AZURE_OS_DISK            # managed | ephemeral | ephemeral-preview | auto
 CRABBOX_AZURE_VNET
 CRABBOX_AZURE_SUBNET
 CRABBOX_AZURE_NSG

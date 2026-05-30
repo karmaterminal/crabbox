@@ -371,7 +371,9 @@ failed rather than falling back to a different size.
 Azure one-shot leases use managed `StandardSSD_LRS` OS disks by default so they
 can become native checkpoint sources. Use `--azure-os-disk ephemeral` only for
 stateless leases that do not need native Azure checkpoint/fork support;
-`--azure-os-disk auto` is accepted for compatibility and resolves to managed.
+`--azure-os-disk ephemeral-preview` opts into Azure's public-preview
+full-caching ephemeral OS disk mode. `--azure-os-disk auto` is accepted for
+compatibility and resolves to managed.
 
 ## Flags
 

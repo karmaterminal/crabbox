@@ -112,8 +112,8 @@ resolves to a disk snapshot where the provider supports one.
 - Azure cannot create a managed image from an active VM, so the Azure native
   path uses a managed OS-disk snapshot. That snapshot requires a managed OS disk
   (the default); creation refuses leases started with
-  `--azure-os-disk ephemeral`, where Azure reports success but does not capture
-  live disk state.
+  `--azure-os-disk ephemeral` or `--azure-os-disk ephemeral-preview`, where
+  Azure reports success but does not capture live disk state.
 
 Before a native snapshot, Crabbox cleans the source: on Linux it runs
 `cloud-init clean --logs` (so a forked box regenerates SSH host keys) and
