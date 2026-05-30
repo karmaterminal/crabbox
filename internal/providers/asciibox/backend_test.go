@@ -43,6 +43,7 @@ func TestProviderSpecAndAliases(t *testing.T) {
 }
 
 func TestClientUsesOfficialAsciiBoxCLI(t *testing.T) {
+	t.Setenv("BOX_API_KEY", "stale_key")
 	home := t.TempDir()
 	runner := &fakeCommandRunner{configPath: home + "/Library/Application Support/ascii/box/config.json"}
 	client := &client{apiKey: "box_key", apiURL: "https://ascii.dev", cliPath: "box", home: home, runner: runner}
@@ -83,6 +84,9 @@ func TestClientUsesOfficialAsciiBoxCLI(t *testing.T) {
 	for _, env := range runner.env {
 		if !hasEnv(env, "BOX_API_KEY=box_key") {
 			t.Fatalf("env missing BOX_API_KEY: %v", env)
+		}
+		if hasEnv(env, "BOX_API_KEY=stale_key") {
+			t.Fatalf("env kept stale BOX_API_KEY: %v", env)
 		}
 		if !hasEnv(env, "HOME="+home) {
 			t.Fatalf("env missing HOME: %v", env)
@@ -200,6 +204,34 @@ func TestResolveReleaseOnlyDoesNotRequireSSHFields(t *testing.T) {
 	}
 	if lease.SSH.Host != "" || lease.Server.CloudID != "bx_booting" {
 		t.Fatalf("lease=%#v", lease)
+	}
+}
+
+func TestResolveRawBoxIDClaimsProviderScope(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	fake := &fakeAPI{box: boxData{ID: "bx_external", State: "ready", IP: "203.0.113.30"}}
+	withFakeAPI(t, fake)
+	stubSSHWait(t)
+
+	repoRoot := t.TempDir()
+	backend := NewBackend(Provider{}.Spec(), testConfig(), testRuntime()).(*backend)
+	lease, err := backend.Resolve(context.Background(), ResolveRequest{ID: "bx_external", Repo: core.Repo{Root: repoRoot}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, ok, err := core.ResolveLeaseClaim(lease.LeaseID)
+	if err != nil || !ok {
+		t.Fatalf("claim ok=%t err=%v", ok, err)
+	}
+	if claim.ProviderScope != "box:bx_external" {
+		t.Fatalf("provider scope=%q", claim.ProviderScope)
+	}
+	resolved, err := backend.Resolve(context.Background(), ResolveRequest{ID: lease.LeaseID, ReleaseOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Server.CloudID != "bx_external" {
+		t.Fatalf("resolved=%#v", resolved)
 	}
 }
 

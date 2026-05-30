@@ -253,7 +253,7 @@ func (c *client) waitForBoxReady(ctx context.Context, box boxData) (boxData, err
 }
 
 func (c *client) env() []string {
-	return append(setEnv(os.Environ(), "HOME", c.home), "BOX_API_KEY="+c.apiKey)
+	return setEnv(setEnv(os.Environ(), "HOME", c.home), "BOX_API_KEY", c.apiKey)
 }
 
 func (c *client) sshEnv() []string {

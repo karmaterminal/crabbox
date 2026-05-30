@@ -86,7 +86,7 @@ func (b *backend) Resolve(ctx context.Context, req ResolveRequest) (LeaseTarget,
 	if err != nil {
 		return LeaseTarget{}, err
 	}
-	leaseID, boxID, slug, err := b.resolveBoxID(ctx, client, req.ID, req.Repo.Root, req.Reclaim)
+	leaseID, boxID, slug, err := b.resolveBoxID(ctx, client, req.ID, req.Repo.Root, cfg.IdleTimeout, req.Reclaim)
 	if err != nil {
 		return LeaseTarget{}, err
 	}
@@ -159,7 +159,7 @@ func (b *backend) Status(ctx context.Context, req StatusRequest) (StatusView, er
 	if err != nil {
 		return StatusView{}, err
 	}
-	leaseID, boxID, slug, err := b.resolveBoxID(ctx, client, req.ID, "", false)
+	leaseID, boxID, slug, err := b.resolveBoxID(ctx, client, req.ID, "", 0, false)
 	if err != nil {
 		return StatusView{}, err
 	}
@@ -204,7 +204,7 @@ func (b *backend) ReleaseLease(ctx context.Context, req ReleaseLeaseRequest) err
 		boxID = strings.TrimSpace(req.Lease.Server.Labels["box_id"])
 	}
 	if boxID == "" && req.Lease.LeaseID != "" {
-		_, resolvedBoxID, _, err := b.resolveBoxID(ctx, client, req.Lease.LeaseID, "", false)
+		_, resolvedBoxID, _, err := b.resolveBoxID(ctx, client, req.Lease.LeaseID, "", 0, false)
 		if err != nil {
 			return err
 		}
@@ -254,7 +254,7 @@ func (b *backend) leaseFromBox(ctx context.Context, cfg Config, box boxData, lea
 	return LeaseTarget{Server: server, SSH: target, LeaseID: leaseID}, nil
 }
 
-func (b *backend) resolveBoxID(ctx context.Context, client api, id, repoRoot string, reclaim bool) (string, string, string, error) {
+func (b *backend) resolveBoxID(ctx context.Context, client api, id, repoRoot string, idleTimeout time.Duration, reclaim bool) (string, string, string, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return "", "", "", exit(2, "provider=%s requires a Crabbox lease id, slug, or ASCII Box id", providerName)
@@ -279,7 +279,13 @@ func (b *backend) resolveBoxID(ctx context.Context, client api, id, repoRoot str
 	}
 	if box, err := client.GetBox(ctx, id); err == nil {
 		leaseID := boxLeaseID(box)
-		return leaseID, box.ID, boxSlug(leaseID, box), nil
+		slug := boxSlug(leaseID, box)
+		if repoRoot != "" {
+			if err := claimLeaseForRepoProviderScope(leaseID, slug, providerName, boxScope(box.ID), repoRoot, idleTimeout, reclaim); err != nil {
+				return "", "", "", err
+			}
+		}
+		return leaseID, box.ID, slug, nil
 	} else if err != nil && !isNotFound(err) {
 		return "", "", "", err
 	}
