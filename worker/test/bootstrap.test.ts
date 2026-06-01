@@ -230,6 +230,20 @@ describe("cloud-init bootstrap", () => {
     expect(got).toContain("exec dbus-run-session labwc");
     expect(got).toContain("export GDK_BACKEND=x11");
     expect(got).toContain("export MOZ_ENABLE_WAYLAND=0");
+    expect(got).toContain('theme="$(cat "$HOME/.config/crabbox/desktop-theme"');
+    expect(got).toContain("gsettings set org.gnome.desktop.interface color-scheme prefer-dark");
+    expect(got).toContain("/usr/local/bin/crabbox-configure-desktop-theme");
+    expect(got).toContain(
+      "CRABBOX_DESKTOP_USER=crabbox /usr/local/bin/crabbox-configure-desktop-theme",
+    );
+    expect(got).toContain('if [ "$(id -u)" -eq 0 ]; then');
+    expect(got).toContain(
+      'mkdir -p "$config_dir/crabbox" "$config_dir/gtk-3.0" "$config_dir/gtk-4.0"',
+    );
+    expect(got).toContain(
+      'DISPLAY="$display" XDG_RUNTIME_DIR="$runtime" GDK_BACKEND=x11 gsettings set org.gnome.desktop.interface color-scheme "$gsettings_scheme"',
+    );
+    expect(got).toContain('elif [ "$(id -u)" -ne 0 ] && pgrep -x gnome-panel');
     expect(got).toContain("gnome-panel >/tmp/crabbox-gnome-panel.log 2>&1 &");
     expect(got).toContain("gnome-terminal -- bash -l");
     expect(got).toContain("nautilus --new-window");
@@ -237,6 +251,10 @@ describe("cloud-init bootstrap", () => {
     expect(got).toContain("/etc/systemd/system/crabbox-wayvnc.service");
     expect(got).toContain("--user-data-dir=");
     expect(got).toContain("--ozone-platform=x11");
+    expect(got).toContain(
+      "--force-dark-mode --enable-features=WebUIDarkMode --blink-settings=preferredColorScheme=2",
+    );
+    expect(got).toContain("--blink-settings=preferredColorScheme=1");
     expect(got).not.toContain("startxfce4");
     expect(got).not.toContain("x11vnc -storepasswd");
     expect(got).not.toContain("gnome-shell");
@@ -244,6 +262,7 @@ describe("cloud-init bootstrap", () => {
     expect(got).not.toContain("QT_QPA_PLATFORM=xcb");
     expect(got).not.toContain("waybar");
     expect(got).not.toContain('"wlr/taskbar"');
+    expect(got).not.toContain("\n#!/bin/sh\nset -eu\nrequested_mode=");
   });
 
   it("starts ssh before optional desktop and browser bootstrap", () => {
@@ -301,8 +320,6 @@ describe("cloud-init bootstrap", () => {
     expect(got).not.toContain("<<'EOF'");
     expect(got).not.toContain("<<EOF");
     expect(got).not.toContain("\nEOF");
-    expect(got).not.toContain("--force-dark-mode");
-    expect(got).not.toContain("preferredColorScheme=2");
   });
 
   it("adds code-server setup only when requested", () => {

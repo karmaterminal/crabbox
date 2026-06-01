@@ -223,12 +223,22 @@ func TestCloudInitGnomeDesktopProfile(t *testing.T) {
 		"exec dbus-run-session labwc",
 		"export GDK_BACKEND=x11",
 		"export MOZ_ENABLE_WAYLAND=0",
+		`theme="$(cat "$HOME/.config/crabbox/desktop-theme"`,
+		"gsettings set org.gnome.desktop.interface color-scheme prefer-dark",
+		"/usr/local/bin/crabbox-configure-desktop-theme",
+		"CRABBOX_DESKTOP_USER=crabbox /usr/local/bin/crabbox-configure-desktop-theme",
+		`if [ "$(id -u)" -eq 0 ]; then`,
+		`mkdir -p "$config_dir/crabbox" "$config_dir/gtk-3.0" "$config_dir/gtk-4.0"`,
+		`DISPLAY="$display" XDG_RUNTIME_DIR="$runtime" GDK_BACKEND=x11 gsettings set org.gnome.desktop.interface color-scheme "$gsettings_scheme"`,
+		`elif [ "$(id -u)" -ne 0 ] && pgrep -x gnome-panel`,
 		"gnome-panel >/tmp/crabbox-gnome-panel.log 2>&1 &",
 		"gnome-terminal -- bash -l",
 		"nautilus --new-window",
 		"rm -f /var/lib/crabbox/display.env",
 		"--user-data-dir=",
 		"--ozone-platform=x11",
+		"--force-dark-mode --enable-features=WebUIDarkMode --blink-settings=preferredColorScheme=2",
+		"--blink-settings=preferredColorScheme=1",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("cloudInit(gnome desktop) missing %q", want)
@@ -242,6 +252,7 @@ func TestCloudInitGnomeDesktopProfile(t *testing.T) {
 		"QT_QPA_PLATFORM=xcb",
 		"waybar",
 		`"wlr/taskbar"`,
+		"\n#!/bin/sh\nset -eu\nrequested_mode=",
 	} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("cloudInit(gnome desktop) contains %q", notWant)
@@ -278,8 +289,6 @@ func TestCloudInitBrowserWrapper(t *testing.T) {
 		"<<'EOF'",
 		"<<EOF",
 		"\nEOF",
-		"--force-dark-mode",
-		"preferredColorScheme=2",
 	} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("cloudInit(browser) contains browser heredoc content %q", notWant)

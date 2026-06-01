@@ -1001,6 +1001,8 @@ func cloudInitOptionalBootstrap(cfg Config) string {
 `
 		configDirs := "/home/crabbox/.config/labwc /home/crabbox/.config/wayvnc"
 		desktopEnvExtra := ""
+		themeBootstrap := ""
+		themeConfigure := ""
 		if desktopEnv == desktopEnvGnome {
 			packages = "labwc wayvnc gnome-panel wlr-randr grim slurp wtype wl-clipboard dbus-user-session xwayland xdg-desktop-portal-wlr xdg-desktop-portal-gtk gnome-terminal nautilus gsettings-desktop-schemas adwaita-icon-theme fonts-dejavu-core fonts-liberation iproute2 openssl procps"
 			autostart = `    wlr-randr --output HEADLESS-1 --custom-mode 1920x1080 >/tmp/crabbox-wlr-randr.log 2>&1 || true
@@ -1010,7 +1012,16 @@ func cloudInitOptionalBootstrap(cfg Config) string {
     done
     export XDG_CURRENT_DESKTOP=GNOME
     export XDG_SESSION_DESKTOP=gnome
-    export GTK_THEME=Adwaita
+    theme="$(cat "$HOME/.config/crabbox/desktop-theme" 2>/dev/null || printf dark)"
+    if [ "$theme" = light ]; then
+      export GTK_THEME=Adwaita
+      gsettings set org.gnome.desktop.interface color-scheme prefer-light >/dev/null 2>&1 || true
+      gsettings set org.gnome.desktop.interface gtk-theme Adwaita >/dev/null 2>&1 || true
+    else
+      export GTK_THEME=Adwaita-dark
+      gsettings set org.gnome.desktop.interface color-scheme prefer-dark >/dev/null 2>&1 || true
+      gsettings set org.gnome.desktop.interface gtk-theme Adwaita-dark >/dev/null 2>&1 || true
+    fi
     export DISPLAY="${DISPLAY:-:0}"
     export GDK_BACKEND=x11
     export MOZ_ENABLE_WAYLAND=0
@@ -1019,6 +1030,81 @@ func cloudInitOptionalBootstrap(cfg Config) string {
     nautilus --new-window "$HOME" >/tmp/crabbox-nautilus.log 2>&1 &
 `
 			desktopEnvExtra = "    DISPLAY=:0\n    GDK_BACKEND=x11\n    MOZ_ENABLE_WAYLAND=0\n"
+			themeBootstrap = indentCloudInitRuncmd(`cat >/usr/local/bin/crabbox-configure-desktop-theme <<'THEME'
+#!/bin/sh
+set -eu
+requested_mode="${1:-${CRABBOX_DESKTOP_THEME:-}}"
+user="${CRABBOX_DESKTOP_USER:-crabbox}"
+home_dir="$(getent passwd "$user" | cut -d: -f6)"
+if [ -z "$home_dir" ]; then
+  home_dir="/home/$user"
+fi
+config_dir="$home_dir/.config"
+mode="$requested_mode"
+if [ -z "$mode" ] && [ -f "$config_dir/crabbox/desktop-theme" ]; then
+  mode="$(cat "$config_dir/crabbox/desktop-theme" 2>/dev/null || true)"
+fi
+case "$mode" in
+  light|dark) ;;
+  *) mode=dark ;;
+esac
+if [ "$mode" = "light" ]; then
+  gtk_theme=Adwaita
+  gtk_prefer_dark_ini=0
+  gsettings_scheme=prefer-light
+else
+  gtk_theme=Adwaita-dark
+  gtk_prefer_dark_ini=1
+  gsettings_scheme=prefer-dark
+fi
+if [ "$(id -u)" -eq 0 ]; then
+  install -d -m 0700 -o "$user" "$config_dir/crabbox" "$config_dir/gtk-3.0" "$config_dir/gtk-4.0"
+else
+  mkdir -p "$config_dir/crabbox" "$config_dir/gtk-3.0" "$config_dir/gtk-4.0"
+  chmod 0700 "$config_dir" "$config_dir/crabbox" "$config_dir/gtk-3.0" "$config_dir/gtk-4.0"
+fi
+printf '%s\n' "$mode" > "$config_dir/crabbox/desktop-theme"
+for gtk_dir in "$config_dir/gtk-3.0" "$config_dir/gtk-4.0"; do
+  cat > "$gtk_dir/settings.ini" <<EOF
+[Settings]
+gtk-theme-name=$gtk_theme
+gtk-icon-theme-name=Adwaita
+gtk-application-prefer-dark-theme=$gtk_prefer_dark_ini
+EOF
+done
+cat > "$home_dir/.gtkrc-2.0" <<EOF
+gtk-theme-name="$gtk_theme"
+gtk-icon-theme-name="Adwaita"
+gtk-application-prefer-dark-theme=$gtk_prefer_dark_ini
+EOF
+if [ "$(id -u)" -eq 0 ]; then
+  chown -R "$user" "$config_dir/crabbox" "$config_dir/gtk-3.0" "$config_dir/gtk-4.0" "$home_dir/.gtkrc-2.0"
+fi
+if [ -f /var/lib/crabbox/desktop.env ]; then
+  . /var/lib/crabbox/desktop.env
+fi
+display="${DISPLAY:-:0}"
+runtime="${XDG_RUNTIME_DIR:-/tmp/crabbox-runtime-$(id -u "$user")}"
+if command -v gsettings >/dev/null 2>&1; then
+  if [ "$(id -u)" -eq 0 ]; then
+    su "$user" -s /bin/sh -c "DISPLAY='$display' XDG_RUNTIME_DIR='$runtime' GDK_BACKEND=x11 gsettings set org.gnome.desktop.interface color-scheme '$gsettings_scheme' >/dev/null 2>&1 || true"
+    su "$user" -s /bin/sh -c "DISPLAY='$display' XDG_RUNTIME_DIR='$runtime' GDK_BACKEND=x11 gsettings set org.gnome.desktop.interface gtk-theme '$gtk_theme' >/dev/null 2>&1 || true"
+  else
+    DISPLAY="$display" XDG_RUNTIME_DIR="$runtime" GDK_BACKEND=x11 gsettings set org.gnome.desktop.interface color-scheme "$gsettings_scheme" >/dev/null 2>&1 || true
+    DISPLAY="$display" XDG_RUNTIME_DIR="$runtime" GDK_BACKEND=x11 gsettings set org.gnome.desktop.interface gtk-theme "$gtk_theme" >/dev/null 2>&1 || true
+  fi
+fi
+if [ "$(id -u)" -eq 0 ] && pgrep -u "$user" -x gnome-panel >/dev/null 2>&1; then
+  pkill -TERM -u "$user" -x gnome-panel >/dev/null 2>&1 || true
+  su "$user" -s /bin/sh -c "DISPLAY='$display' XDG_RUNTIME_DIR='$runtime' GDK_BACKEND=x11 GTK_THEME='$gtk_theme' gnome-panel >/tmp/crabbox-gnome-panel.log 2>&1 &" >/dev/null 2>&1 || true
+elif [ "$(id -u)" -ne 0 ] && pgrep -x gnome-panel >/dev/null 2>&1; then
+  pkill -TERM -x gnome-panel >/dev/null 2>&1 || true
+  DISPLAY="$display" XDG_RUNTIME_DIR="$runtime" GDK_BACKEND=x11 GTK_THEME="$gtk_theme" gnome-panel >/tmp/crabbox-gnome-panel.log 2>&1 &
+fi
+THEME
+chmod 0755 /usr/local/bin/crabbox-configure-desktop-theme
+`)
+			themeConfigure = "    CRABBOX_DESKTOP_USER=crabbox /usr/local/bin/crabbox-configure-desktop-theme\n"
 		}
 		parts = append(parts, `    retry apt-get install -y --no-install-recommends `+packages+`
     install -d -m 0750 -o crabbox -g crabbox /var/lib/crabbox
@@ -1031,7 +1117,7 @@ func cloudInitOptionalBootstrap(cfg Config) string {
     crabbox_runtime="/tmp/crabbox-runtime-$crabbox_uid"
     install -d -m 0700 -o crabbox -g crabbox "$crabbox_runtime"
     install -d -m 0700 -o crabbox -g crabbox `+configDirs+`
-    cat >/home/crabbox/.config/labwc/autostart <<'AUTOSTART'
+`+themeBootstrap+`    cat >/home/crabbox/.config/labwc/autostart <<'AUTOSTART'
 `+autostart+`    AUTOSTART
     chmod 0755 /home/crabbox/.config/labwc/autostart
     cat >/home/crabbox/.config/wayvnc/config <<'WAYVNC'
@@ -1048,7 +1134,7 @@ func cloudInitOptionalBootstrap(cfg Config) string {
     EOF
     chown -R crabbox:crabbox /home/crabbox/.config /var/lib/crabbox/desktop.env
     chmod 0644 /var/lib/crabbox/desktop.env
-    systemctl daemon-reload
+`+themeConfigure+`    systemctl daemon-reload
     systemctl disable --now crabbox-xvfb.service crabbox-desktop-session.service crabbox-x11vnc.service 2>/dev/null || true
     systemctl enable crabbox-desktop.service crabbox-wayvnc.service
     systemctl restart crabbox-desktop.service crabbox-wayvnc.service`)
@@ -1101,7 +1187,7 @@ func cloudInitOptionalBootstrap(cfg Config) string {
       printf '%s\n' '{"DefaultBrowserSettingEnabled":false,"MetricsReportingEnabled":false,"PromotionalTabsEnabled":false}' > /etc/opt/chrome/policies/managed/crabbox.json
       cp /etc/opt/chrome/policies/managed/crabbox.json /etc/chromium/policies/managed/crabbox.json
       if [ -f /var/lib/crabbox/desktop.env ] && grep -q '^CRABBOX_DESKTOP_ENV=gnome$' /var/lib/crabbox/desktop.env; then
-        printf '%s\n' '#!/bin/sh' 'if [ -f /var/lib/crabbox/desktop.env ]; then . /var/lib/crabbox/desktop.env; fi' 'export DISPLAY="${DISPLAY:-:0}"' 'export XDG_RUNTIME_DIR WAYLAND_DISPLAY' 'export GDK_BACKEND=x11 MOZ_ENABLE_WAYLAND=0' 'profile="${CRABBOX_BROWSER_PROFILE:-$HOME/.cache/crabbox/browser-profile}"' 'umask 077' 'mkdir -p "$profile"' 'chmod 700 "$profile"' "exec \"$browser_path\" --no-first-run --no-default-browser-check --disable-default-apps --hide-crash-restore-bubble --user-data-dir=\"\$profile\" --ozone-platform=x11 --window-size=1500,900 --window-position=80,80 \"\$@\"" > "$browser_wrapper"
+        printf '%s\n' '#!/bin/sh' 'if [ -f /var/lib/crabbox/desktop.env ]; then . /var/lib/crabbox/desktop.env; fi' 'export DISPLAY="${DISPLAY:-:0}"' 'export XDG_RUNTIME_DIR WAYLAND_DISPLAY' 'export GDK_BACKEND=x11 MOZ_ENABLE_WAYLAND=0' 'profile="${CRABBOX_BROWSER_PROFILE:-$HOME/.cache/crabbox/browser-profile}"' 'theme="$(cat "${CRABBOX_DESKTOP_THEME_FILE:-$HOME/.config/crabbox/desktop-theme}" 2>/dev/null || printf dark)"' 'umask 077' 'mkdir -p "$profile"' 'chmod 700 "$profile"' 'if [ "$theme" = light ]; then' "  exec \"$browser_path\" --no-first-run --no-default-browser-check --disable-default-apps --hide-crash-restore-bubble --blink-settings=preferredColorScheme=1 --user-data-dir=\"\$profile\" --ozone-platform=x11 --window-size=1500,900 --window-position=80,80 \"\$@\"" 'fi' "exec \"$browser_path\" --no-first-run --no-default-browser-check --disable-default-apps --hide-crash-restore-bubble --force-dark-mode --enable-features=WebUIDarkMode --blink-settings=preferredColorScheme=2 --user-data-dir=\"\$profile\" --ozone-platform=x11 --window-size=1500,900 --window-position=80,80 \"\$@\"" > "$browser_wrapper"
       elif [ -f /var/lib/crabbox/desktop.env ] && grep -q '^CRABBOX_DESKTOP_ENV=wayland$' /var/lib/crabbox/desktop.env; then
         printf '%s\n' '#!/bin/sh' 'if [ -f /var/lib/crabbox/desktop.env ]; then . /var/lib/crabbox/desktop.env; fi' 'export XDG_RUNTIME_DIR WAYLAND_DISPLAY' 'export MOZ_ENABLE_WAYLAND=1' 'profile="${CRABBOX_BROWSER_PROFILE:-$HOME/.cache/crabbox/browser-profile}"' 'umask 077' 'mkdir -p "$profile"' 'chmod 700 "$profile"' "exec \"$browser_path\" --no-first-run --no-default-browser-check --disable-default-apps --hide-crash-restore-bubble --user-data-dir=\"\$profile\" --ozone-platform=wayland --window-size=1500,900 --window-position=80,80 \"\$@\"" > "$browser_wrapper"
       else
@@ -1119,6 +1205,20 @@ func cloudInitOptionalBootstrap(cfg Config) string {
     /usr/local/bin/code-server --version >/dev/null`)
 	}
 	return strings.Join(parts, "\n")
+}
+
+func indentCloudInitRuncmd(script string) string {
+	if script == "" {
+		return ""
+	}
+	lines := strings.SplitAfter(script, "\n")
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		lines[i] = "    " + line
+	}
+	return strings.Join(lines, "")
 }
 
 func cloudInitGCPExpiryGuardFiles() string {

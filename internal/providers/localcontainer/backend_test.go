@@ -443,6 +443,10 @@ func TestBootstrapScriptUsesAccountHomeDirectory(t *testing.T) {
 		`-wait 16 -defer 8 -nowait_bog`,
 		`wayvnc --config '$home_dir/.config/wayvnc/config' --render-cursor --max-fps=60`,
 		`gsettings set org.gnome.desktop.interface color-scheme '$gsettings_scheme'`,
+		`if [ "$(id -u)" -eq 0 ]; then`,
+		`mkdir -p "$config_dir/crabbox" "$config_dir/gtk-3.0" "$config_dir/gtk-4.0"`,
+		`DISPLAY="$display" XDG_RUNTIME_DIR="$runtime" GDK_BACKEND=x11 gsettings set org.gnome.desktop.interface color-scheme "$gsettings_scheme"`,
+		`elif [ "$(id -u)" -ne 0 ] && pgrep -x gnome-panel`,
 	} {
 		if !strings.Contains(bootstrapScript, want) {
 			t.Fatalf("bootstrap script missing %q", want)
@@ -472,6 +476,13 @@ func TestBootstrapScriptSupportsWaylandDesktop(t *testing.T) {
 		`gnome-terminal -- bash -l`,
 		`nautilus --new-window "$HOME"`,
 		`--user-data-dir=`,
+		`if [ "$desktop_env" = "gnome" ]; then
+    cat >/usr/local/bin/crabbox-configure-desktop-theme`,
+		`crabbox-configure-desktop-theme`,
+		`desktop-theme`,
+		`gsettings set org.gnome.desktop.interface color-scheme '$gsettings_scheme'`,
+		`--force-dark-mode --enable-features=WebUIDarkMode --blink-settings=preferredColorScheme=2`,
+		`--blink-settings=preferredColorScheme=1`,
 		`WLR_BACKENDS=headless`,
 		`rm -f /var/lib/crabbox/display.env`,
 		`dbus-run-session labwc`,
