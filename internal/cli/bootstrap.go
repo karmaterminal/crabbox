@@ -1004,7 +1004,7 @@ func cloudInitOptionalBootstrap(cfg Config) string {
 		themeBootstrap := ""
 		themeConfigure := ""
 		if desktopEnv == desktopEnvGnome {
-			packages = "labwc wayvnc gnome-panel wlr-randr grim slurp wtype wl-clipboard dbus-user-session xwayland xdg-desktop-portal-wlr xdg-desktop-portal-gtk gnome-terminal nautilus gsettings-desktop-schemas adwaita-icon-theme fonts-dejavu-core fonts-liberation iproute2 openssl procps"
+			packages = "labwc wayvnc swaybg librsvg2-common gnome-panel wlr-randr grim slurp wtype wl-clipboard dbus-user-session xwayland xdg-desktop-portal-wlr xdg-desktop-portal-gtk gnome-terminal nautilus gsettings-desktop-schemas adwaita-icon-theme fonts-dejavu-core fonts-liberation iproute2 openssl procps"
 			autostart = `    wlr-randr --output HEADLESS-1 --custom-mode 1920x1080 >/tmp/crabbox-wlr-randr.log 2>&1 || true
     for _ in $(seq 1 20); do
       [ -S /tmp/.X11-unix/X0 ] && break
@@ -1025,6 +1025,10 @@ func cloudInitOptionalBootstrap(cfg Config) string {
     export DISPLAY="${DISPLAY:-:0}"
     export GDK_BACKEND=x11
     export MOZ_ENABLE_WAYLAND=0
+    wallpaper_file="$HOME/.config/crabbox/desktop-background-$theme.svg"
+    if command -v swaybg >/dev/null 2>&1; then
+      (swaybg -i "$wallpaper_file" -m fill >/tmp/crabbox-swaybg.log 2>&1 || swaybg -c "#0d1117" >/tmp/crabbox-swaybg.log 2>&1) &
+    fi
     gnome-panel >/tmp/crabbox-gnome-panel.log 2>&1 &
     gnome-terminal -- bash -l >/tmp/crabbox-gnome-terminal.log 2>&1 &
     nautilus --new-window "$HOME" >/tmp/crabbox-nautilus.log 2>&1 &
@@ -1059,6 +1063,13 @@ if [ "$mode" = "light" ]; then
   labwc_inactive_title_bg="#e5e7eb"
   labwc_inactive_title_fg="#374151"
   labwc_border="#cbd5e1"
+  terminal_menu_bg="#f3f4f6"
+  terminal_menu_fg="#111827"
+  terminal_menu_hover_bg="#e5e7eb"
+  wallpaper_bg="#e7eef7"
+  wallpaper_panel="#d6e7f2"
+  wallpaper_accent="#0891b2"
+  wallpaper_grid="#b9c7d7"
 else
   gtk_theme=Adwaita-dark
   gtk_prefer_dark_ini=1
@@ -1070,6 +1081,13 @@ else
   labwc_inactive_title_bg="#111827"
   labwc_inactive_title_fg="#9ca3af"
   labwc_border="#30363d"
+  terminal_menu_bg="#2b2f36"
+  terminal_menu_fg="#d1d5db"
+  terminal_menu_hover_bg="#374151"
+  wallpaper_bg="#0d1117"
+  wallpaper_panel="#111827"
+  wallpaper_accent="#22d3ee"
+  wallpaper_grid="#1f2937"
 fi
 if [ "$(id -u)" -eq 0 ]; then
   install -d -m 0700 -o "$user" "$config_dir/crabbox" "$config_dir/gtk-3.0" "$config_dir/gtk-4.0"
@@ -1121,6 +1139,21 @@ set_gnome_terminal_theme() {
     gsettings set "org.gnome.Terminal.Legacy.Profile:$profile_path" use-transparent-background false >/dev/null 2>&1 || true
   done
 }
+set_gtk_chrome_theme() {
+  cat > "$config_dir/gtk-3.0/gtk.css" <<EOF
+menubar, .menubar {
+  background-color: $terminal_menu_bg;
+  color: $terminal_menu_fg;
+}
+menubar menuitem, menubar menuitem label {
+  color: $terminal_menu_fg;
+}
+menubar menuitem:hover {
+  background-color: $terminal_menu_hover_bg;
+  color: $terminal_menu_fg;
+}
+EOF
+}
 set_labwc_theme() {
   mkdir -p "$config_dir/labwc"
   cat > "$config_dir/labwc/themerc-override" <<EOF
@@ -1144,6 +1177,25 @@ EOF
     fi
   fi
 }
+set_desktop_background() {
+  wallpaper_file="$config_dir/crabbox/desktop-background-$mode.svg"
+  cat > "$wallpaper_file" <<EOF
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+  <rect width="1920" height="1080" fill="$wallpaper_bg"/>
+  <path d="M0 720 C360 620 520 760 860 650 C1210 540 1430 660 1920 520 L1920 1080 L0 1080 Z" fill="$wallpaper_panel"/>
+  <g stroke="$wallpaper_grid" stroke-width="1" opacity="0.45">
+    <path d="M0 180 H1920M0 360 H1920M0 540 H1920M0 720 H1920M0 900 H1920"/>
+    <path d="M240 0 V1080M480 0 V1080M720 0 V1080M960 0 V1080M1200 0 V1080M1440 0 V1080M1680 0 V1080"/>
+  </g>
+  <path d="M220 740 C520 520 790 910 1090 670 S1510 520 1710 700" fill="none" stroke="$wallpaper_accent" stroke-width="18" stroke-linecap="round" opacity="0.8"/>
+  <rect x="1320" y="180" width="360" height="170" rx="18" fill="$wallpaper_accent" opacity="0.12"/>
+</svg>
+EOF
+  if command -v swaybg >/dev/null 2>&1; then
+    pkill -u "$user" -x swaybg >/dev/null 2>&1 || true
+    (XDG_RUNTIME_DIR="$runtime" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}" swaybg -i "$wallpaper_file" -m fill >/tmp/crabbox-swaybg.log 2>&1 || XDG_RUNTIME_DIR="$runtime" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}" swaybg -c "$wallpaper_bg" >/tmp/crabbox-swaybg.log 2>&1) &
+  fi
+}
 target_uid="$(id -u "$user" 2>/dev/null || printf 0)"
 if [ "$(id -u)" -eq 0 ] && [ "$target_uid" -ne 0 ]; then
   su "$user" -s /bin/sh -c "CRABBOX_DESKTOP_USER='$user' CRABBOX_DESKTOP_THEME='$mode' DISPLAY='$display' XDG_RUNTIME_DIR='$runtime' DBUS_SESSION_BUS_ADDRESS='$dbus_address' GDK_BACKEND=x11 /usr/local/bin/crabbox-configure-desktop-theme '$mode'" || true
@@ -1159,7 +1211,9 @@ if command -v gsettings >/dev/null 2>&1; then
     DISPLAY="$display" XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$dbus_address" GDK_BACKEND=x11 set_gnome_terminal_theme
   fi
 fi
+set_gtk_chrome_theme
 set_labwc_theme
+set_desktop_background
 if [ "$(id -u)" -eq 0 ] && pgrep -u "$user" -x gnome-panel >/dev/null 2>&1; then
   pkill -TERM -u "$user" -x gnome-panel >/dev/null 2>&1 || true
   su "$user" -s /bin/sh -c "DISPLAY='$display' XDG_RUNTIME_DIR='$runtime' DBUS_SESSION_BUS_ADDRESS='$dbus_address' GDK_BACKEND=x11 GTK_THEME='$gtk_theme' nohup gnome-panel >/tmp/crabbox-gnome-panel.log 2>&1 &" >/dev/null 2>&1 || true

@@ -1480,6 +1480,13 @@ func webVNCGNOMEDesktopThemeFallbackCommand(theme, user string) string {
       labwc_inactive_title_bg="#e5e7eb"
       labwc_inactive_title_fg="#374151"
       labwc_border="#cbd5e1"
+      terminal_menu_bg="#f3f4f6"
+      terminal_menu_fg="#111827"
+      terminal_menu_hover_bg="#e5e7eb"
+      wallpaper_bg="#e7eef7"
+      wallpaper_panel="#d6e7f2"
+      wallpaper_accent="#0891b2"
+      wallpaper_grid="#b9c7d7"
       ;;
     *)
       theme=dark
@@ -1493,6 +1500,13 @@ func webVNCGNOMEDesktopThemeFallbackCommand(theme, user string) string {
       labwc_inactive_title_bg="#111827"
       labwc_inactive_title_fg="#9ca3af"
       labwc_border="#30363d"
+      terminal_menu_bg="#2b2f36"
+      terminal_menu_fg="#d1d5db"
+      terminal_menu_hover_bg="#374151"
+      wallpaper_bg="#0d1117"
+      wallpaper_panel="#111827"
+      wallpaper_accent="#22d3ee"
+      wallpaper_grid="#1f2937"
       ;;
   esac
   mkdir -p "$config_dir/crabbox" "$config_dir/gtk-3.0" "$config_dir/gtk-4.0" "$config_dir/labwc"
@@ -1510,6 +1524,19 @@ EOF
 gtk-theme-name="$gtk_theme"
 gtk-icon-theme-name="Adwaita"
 gtk-application-prefer-dark-theme=$gtk_prefer_dark_ini
+EOF
+  cat > "$config_dir/gtk-3.0/gtk.css" <<EOF
+menubar, .menubar {
+  background-color: $terminal_menu_bg;
+  color: $terminal_menu_fg;
+}
+menubar menuitem, menubar menuitem label {
+  color: $terminal_menu_fg;
+}
+menubar menuitem:hover {
+  background-color: $terminal_menu_hover_bg;
+  color: $terminal_menu_fg;
+}
 EOF
   . /var/lib/crabbox/desktop.env
   display="${DISPLAY:-:0}"
@@ -1557,6 +1584,23 @@ EOF
     if [ -n "$labwc_pid" ]; then
       LABWC_PID="$labwc_pid" XDG_RUNTIME_DIR="$runtime" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}" labwc --reconfigure >/dev/null 2>&1 || kill -HUP "$labwc_pid" >/dev/null 2>&1 || true
     fi
+  fi
+  wallpaper_file="$config_dir/crabbox/desktop-background-$theme.svg"
+  cat > "$wallpaper_file" <<EOF
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+  <rect width="1920" height="1080" fill="$wallpaper_bg"/>
+  <path d="M0 720 C360 620 520 760 860 650 C1210 540 1430 660 1920 520 L1920 1080 L0 1080 Z" fill="$wallpaper_panel"/>
+  <g stroke="$wallpaper_grid" stroke-width="1" opacity="0.45">
+    <path d="M0 180 H1920M0 360 H1920M0 540 H1920M0 720 H1920M0 900 H1920"/>
+    <path d="M240 0 V1080M480 0 V1080M720 0 V1080M960 0 V1080M1200 0 V1080M1440 0 V1080M1680 0 V1080"/>
+  </g>
+  <path d="M220 740 C520 520 790 910 1090 670 S1510 520 1710 700" fill="none" stroke="$wallpaper_accent" stroke-width="18" stroke-linecap="round" opacity="0.8"/>
+  <rect x="1320" y="180" width="360" height="170" rx="18" fill="$wallpaper_accent" opacity="0.12"/>
+</svg>
+EOF
+  if command -v swaybg >/dev/null 2>&1; then
+    pkill -u "$user" -x swaybg >/dev/null 2>&1 || true
+    (XDG_RUNTIME_DIR="$runtime" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}" swaybg -i "$wallpaper_file" -m fill >/tmp/crabbox-swaybg.log 2>&1 || XDG_RUNTIME_DIR="$runtime" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}" swaybg -c "$wallpaper_bg" >/tmp/crabbox-swaybg.log 2>&1) &
   fi
   if pgrep -u "$user" -x gnome-panel >/dev/null 2>&1; then
     pkill -TERM -u "$user" -x gnome-panel >/dev/null 2>&1 || true

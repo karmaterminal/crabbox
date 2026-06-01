@@ -212,7 +212,8 @@ func TestCloudInitGnomeDesktopProfile(t *testing.T) {
 	cfg.DesktopEnv = "gnome"
 	got := cloudInit(cfg, "ssh-ed25519 test")
 	for _, want := range []string{
-		"labwc wayvnc gnome-panel wlr-randr grim slurp wtype wl-clipboard",
+		"labwc wayvnc swaybg librsvg2-common gnome-panel wlr-randr grim slurp wtype wl-clipboard",
+		"swaybg librsvg2-common",
 		"dbus-user-session xwayland",
 		"gnome-terminal nautilus gsettings-desktop-schemas adwaita-icon-theme",
 		"/usr/local/bin/crabbox-start-wayland-desktop",
@@ -238,6 +239,10 @@ func TestCloudInitGnomeDesktopProfile(t *testing.T) {
 		`LABWC_PID="$labwc_pid"`,
 		`labwc --reconfigure`,
 		`kill -HUP "$labwc_pid"`,
+		`"$config_dir/gtk-3.0/gtk.css"`,
+		"menubar menuitem",
+		"desktop-background-$mode.svg",
+		`swaybg -i "$wallpaper_file" -m fill`,
 		`nohup gnome-panel >/tmp/crabbox-gnome-panel.log 2>&1 &`,
 		`elif [ "$(id -u)" -ne 0 ] && pgrep -x gnome-panel`,
 		"gnome-panel >/tmp/crabbox-gnome-panel.log 2>&1 &",

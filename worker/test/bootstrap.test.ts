@@ -220,7 +220,10 @@ describe("cloud-init bootstrap", () => {
 
   it("adds GNOME Wayland desktop services when requested", () => {
     const got = cloudInit({ ...config, desktop: true, desktopEnv: "gnome", browser: true });
-    expect(got).toContain("labwc wayvnc gnome-panel wlr-randr grim slurp wtype wl-clipboard");
+    expect(got).toContain(
+      "labwc wayvnc swaybg librsvg2-common gnome-panel wlr-randr grim slurp wtype wl-clipboard",
+    );
+    expect(got).toContain("swaybg librsvg2-common");
     expect(got).toContain("dbus-user-session xwayland");
     expect(got).toContain("gnome-terminal nautilus gsettings-desktop-schemas adwaita-icon-theme");
     expect(got).toContain("/usr/local/bin/crabbox-start-wayland-desktop");
@@ -253,6 +256,10 @@ describe("cloud-init bootstrap", () => {
     expect(got).toContain('LABWC_PID="$labwc_pid"');
     expect(got).toContain("labwc --reconfigure");
     expect(got).toContain('kill -HUP "$labwc_pid"');
+    expect(got).toContain('"$config_dir/gtk-3.0/gtk.css"');
+    expect(got).toContain("menubar menuitem");
+    expect(got).toContain("desktop-background-$mode.svg");
+    expect(got).toContain('swaybg -i "$wallpaper_file" -m fill');
     expect(got).toContain("nohup gnome-panel >/tmp/crabbox-gnome-panel.log 2>&1 &");
     expect(got).toContain('elif [ "$(id -u)" -ne 0 ] && pgrep -x gnome-panel');
     expect(got).toContain("gnome-panel >/tmp/crabbox-gnome-panel.log 2>&1 &");
