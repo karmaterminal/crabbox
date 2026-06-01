@@ -1,5 +1,10 @@
 # Broker ready pools
 
+This is the generic broker-side contract for prewarmed capacity. For the full
+broker mental model, including CLI/broker/provider ownership, auth, lifecycle,
+cleanup, and cost controls, read [How Crabbox Works](../how-it-works.md) and
+[Orchestrator](../orchestrator.md) first.
+
 Broker ready pools keep hydrated leases available before a test run asks for
 one. The goal is that the first command pays only borrow, SSH, optional sync,
 and command time; image boot and repository setup happen ahead of demand.
