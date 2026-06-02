@@ -119,6 +119,14 @@ func clearConfigEnv(t *testing.T) {
 		"CRABBOX_APPLE_CONTAINER_CPUS",
 		"CRABBOX_APPLE_CONTAINER_MEMORY",
 		"CRABBOX_APPLE_CONTAINER_EXTRA_RUN_ARGS",
+		"CRABBOX_MULTIPASS_CLI",
+		"CRABBOX_MULTIPASS_IMAGE",
+		"CRABBOX_MULTIPASS_USER",
+		"CRABBOX_MULTIPASS_WORK_ROOT",
+		"CRABBOX_MULTIPASS_CPUS",
+		"CRABBOX_MULTIPASS_MEMORY",
+		"CRABBOX_MULTIPASS_DISK",
+		"CRABBOX_MULTIPASS_LAUNCH_TIMEOUT",
 		"CRABBOX_WANDB_API_KEY",
 		"WANDB_API_KEY",
 		"CRABBOX_WANDB_DEFAULT_IMAGE",
@@ -245,6 +253,43 @@ func TestAppleContainerConfigDefaultsFileAndEnv(t *testing.T) {
 	applyEnv(&cfg)
 	if cfg.AppleContainer.CLIPath != "/usr/local/bin/container" || cfg.AppleContainer.Image != "example-org/other:live" || cfg.AppleContainer.User != "env-user" || cfg.AppleContainer.WorkRoot != "/work/env" || cfg.AppleContainer.CPUs != 6 || cfg.AppleContainer.Memory != "12g" || len(cfg.AppleContainer.ExtraRunArgs) != 2 {
 		t.Fatalf("env appleContainer config not applied: %#v", cfg.AppleContainer)
+	}
+}
+
+func TestMultipassConfigDefaultsFileAndEnv(t *testing.T) {
+	clearConfigEnv(t)
+	cfg := baseConfig()
+	if cfg.Multipass.CLIPath != "multipass" || cfg.Multipass.Image != "26.04" || cfg.Multipass.User != "crabbox" {
+		t.Fatalf("multipass defaults not applied: %#v", cfg.Multipass)
+	}
+	applyFileConfig(&cfg, fileConfig{
+		Provider: "multipass",
+		Multipass: &fileMultipassConfig{
+			CLIPath:       "/opt/bin/multipass",
+			Image:         "24.04",
+			User:          "runner",
+			WorkRoot:      "/work/example",
+			CPUs:          4,
+			Memory:        "8G",
+			Disk:          "40G",
+			LaunchTimeout: "7m",
+		},
+	})
+	if cfg.Provider != "multipass" || cfg.Multipass.CLIPath != "/opt/bin/multipass" || cfg.Multipass.Image != "24.04" || cfg.Multipass.User != "runner" || cfg.Multipass.WorkRoot != "/work/example" || cfg.Multipass.CPUs != 4 || cfg.Multipass.Memory != "8G" || cfg.Multipass.Disk != "40G" || cfg.Multipass.LaunchTimeout != 7*time.Minute {
+		t.Fatalf("file multipass config not applied: %#v", cfg.Multipass)
+	}
+
+	t.Setenv("CRABBOX_MULTIPASS_CLI", "/usr/local/bin/multipass")
+	t.Setenv("CRABBOX_MULTIPASS_IMAGE", "26.04")
+	t.Setenv("CRABBOX_MULTIPASS_USER", "env-user")
+	t.Setenv("CRABBOX_MULTIPASS_WORK_ROOT", "/work/env")
+	t.Setenv("CRABBOX_MULTIPASS_CPUS", "6")
+	t.Setenv("CRABBOX_MULTIPASS_MEMORY", "12G")
+	t.Setenv("CRABBOX_MULTIPASS_DISK", "80G")
+	t.Setenv("CRABBOX_MULTIPASS_LAUNCH_TIMEOUT", "11m")
+	applyEnv(&cfg)
+	if cfg.Multipass.CLIPath != "/usr/local/bin/multipass" || cfg.Multipass.Image != "26.04" || cfg.Multipass.User != "env-user" || cfg.Multipass.WorkRoot != "/work/env" || cfg.Multipass.CPUs != 6 || cfg.Multipass.Memory != "12G" || cfg.Multipass.Disk != "80G" || cfg.Multipass.LaunchTimeout != 11*time.Minute {
+		t.Fatalf("env multipass config not applied: %#v", cfg.Multipass)
 	}
 }
 
@@ -1333,6 +1378,44 @@ func TestAppleContainerExplicitImageSurvivesOSDefault(t *testing.T) {
 	}
 	if cfg.AppleContainer.Image != "my-org/custom:tag" {
 		t.Fatalf("explicit apple-container image was overwritten by --os: %q", cfg.AppleContainer.Image)
+	}
+}
+
+func TestMultipassImageFollowsOSImageDefault(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	cfgPath := filepath.Join(home, "crabbox.yaml")
+	t.Setenv("CRABBOX_CONFIG", cfgPath)
+	if err := os.WriteFile(cfgPath, []byte("target: linux\nos: ubuntu:24.04\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Multipass.Image != "24.04" {
+		t.Fatalf("multipass image should follow --os default: %q", cfg.Multipass.Image)
+	}
+}
+
+func TestMultipassExplicitImageSurvivesOSDefault(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	cfgPath := filepath.Join(home, "crabbox.yaml")
+	t.Setenv("CRABBOX_CONFIG", cfgPath)
+	if err := os.WriteFile(cfgPath, []byte("target: linux\nos: ubuntu:24.04\nmultipass:\n  image: daily:26.04\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Multipass.Image != "daily:26.04" {
+		t.Fatalf("explicit multipass image was overwritten by --os: %q", cfg.Multipass.Image)
 	}
 }
 

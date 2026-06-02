@@ -94,6 +94,10 @@ runcmd:
 `, cfg.SSHUser, publicKey, cfg.WorkRoot, portLines, readyChecks, writeFiles, bootstrap)
 }
 
+func CloudInitUserData(cfg Config, publicKey string) string {
+	return cloudInit(cfg, publicKey)
+}
+
 func windowsUserData(cfg Config, publicKey string) string {
 	_ = cfg
 	_ = publicKey

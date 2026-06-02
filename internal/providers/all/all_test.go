@@ -42,6 +42,7 @@ func TestAllBuiltInProvidersExposeDoctor(t *testing.T) {
 		"islo",
 		"local-container",
 		"modal",
+		"multipass",
 		"namespace-devbox",
 		"proxmox",
 		"railway",

@@ -29,10 +29,10 @@ SSH-lease providers further differ by how they reach the cloud:
   API itself and cleans up best-effort via provider labels.
 - **Static SSH** — `ssh` connects to a preexisting machine you supply; no
   provisioning, no cleanup.
-- **Local container** — `local-container` starts a labeled Linux container
-  through a Docker-compatible local runtime (Docker Desktop, OrbStack, Colima).
-  `apple-container` is the equivalent for Apple's native `container` runtime on
-  Apple silicon macOS.
+- **Local runtime** — `local-container` starts a labeled Linux container through
+  a Docker-compatible local runtime (Docker Desktop, OrbStack, Colima),
+  `apple-container` uses Apple's native `container` runtime on Apple silicon
+  macOS, and `multipass` launches local Ubuntu VMs through Canonical Multipass.
 - **Delegated sandbox** — managed sandbox/proof runners that execute remotely
   without an SSH lease (e.g. `e2b`, `modal`, `islo`, `cloudflare`,
   `azure-dynamic-sessions`).
@@ -60,6 +60,7 @@ Each page below maps to an adapter under `internal/providers/<dir>`. The
 | [Static SSH](ssh.md) | `ssh` | `static`, `static-ssh` | Linux, macOS, Windows | no (static) |
 | [Local Container](local-container.md) | `local-container` | `docker`, `container`, `local-docker` | Linux | no (local) |
 | [Apple Container](apple-container.md) | `apple-container` | `apple`, `applecontainer` | Linux | no (local) |
+| [Multipass](multipass.md) | `multipass` | `mp`, `canonical-multipass` | Linux | no (local) |
 | [exe.dev](exe-dev.md) | `exe-dev` | `exe`, `exedev` | Linux | no (direct) |
 | [Namespace Devbox](namespace-devbox.md) | `namespace-devbox` | `namespace`, `namespace-devboxes` | Linux | no (direct) |
 | [Semaphore](semaphore.md) | `semaphore` | `sem` | Linux | no (direct) |
@@ -99,7 +100,8 @@ reports.
 - Capability flags (`--desktop`, `--browser`, `--code`, VNC) are validated
   against each provider's declared feature set. Among the SSH-lease providers,
   desktop/browser/code surfaces are richest on `aws`, `azure`, `hetzner`,
-  `parallels`, `ssh`, and `local-container`; most direct sandbox/delegated
+  `parallels`, `ssh`, and `local-container`; `multipass` exposes local VM SSH
+  and sync only in its first implementation, and most direct sandbox/delegated
   providers expose `ssh` and Crabbox sync only.
 - Actions runner hydration requires a normal SSH lease on Linux. Use a
   Linux-capable SSH-lease provider for that path.
@@ -108,6 +110,7 @@ reports.
 crabbox warmup --provider aws --class beast
 crabbox run --provider hetzner -- pnpm test
 crabbox run --provider docker -- pnpm test
+crabbox run --provider multipass -- go test ./...
 crabbox run --provider blacksmith-testbox --id tbx_123 -- pnpm test
 crabbox run --provider namespace-devbox --id blue-lobster -- pnpm test
 ```
@@ -115,7 +118,7 @@ crabbox run --provider namespace-devbox --id blue-lobster -- pnpm test
 ## Implementation
 
 Provider implementation lives under `internal/providers/<name>`; registration is
-in `internal/providers/all/imports.go`. Command orchestration and the renderer
+in `internal/providers/all/all.go`. Command orchestration and the renderer
 surface stay in `internal/cli`.
 
 Related docs:

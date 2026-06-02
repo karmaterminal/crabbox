@@ -135,6 +135,7 @@ Pick whichever matches your intent:
   [Google Cloud](providers/gcp.md), [Hetzner](providers/hetzner.md),
   [Proxmox](providers/proxmox.md), [Parallels](providers/parallels.md),
   [Local Container](providers/local-container.md),
+  [Multipass](providers/multipass.md),
   [Static SSH](providers/ssh.md), [Railway](providers/railway.md),
   [RunPod](providers/runpod.md),
   [Blacksmith Testbox](providers/blacksmith-testbox.md),

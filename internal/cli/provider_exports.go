@@ -105,6 +105,10 @@ func UpdateLeaseClaimCacheVolumes(leaseID string, specs []string) error {
 	return updateLeaseClaimCacheVolumes(leaseID, specs)
 }
 
+func UpdateLeaseClaimEndpoint(leaseID string, server Server, target SSHTarget) error {
+	return updateLeaseClaimEndpoint(leaseID, server, target)
+}
+
 func ListLeaseClaims() ([]LeaseClaim, error) {
 	return listLeaseClaims()
 }

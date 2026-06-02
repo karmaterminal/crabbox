@@ -74,6 +74,7 @@ SSH-lease providers:
 - Proxmox VE: `internal/providers/proxmox`, with CLI helpers in `internal/cli/proxmox.go`
 - Static/BYO SSH host: `internal/providers/ssh`, with target mapping in `internal/cli/static.go`
 - Local Docker container: `internal/providers/localcontainer`
+- Canonical Multipass local Ubuntu VM: `internal/providers/multipass`
 - Daytona, exe.dev, Namespace devbox, RunPod, Semaphore, Sprites, Railway:
   `internal/providers/daytona`, `internal/providers/exedev`, `internal/providers/namespace`,
   `internal/providers/runpod`, `internal/providers/semaphore`, `internal/providers/sprites`,

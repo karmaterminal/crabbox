@@ -196,6 +196,7 @@ internal/providers/hetzner              # Hetzner Cloud SSH lease backend (coord
 internal/providers/proxmox              # Proxmox VE SSH lease backend
 internal/providers/parallels            # Parallels macOS VM host SSH lease backend
 internal/providers/localcontainer       # local Docker container SSH backend
+internal/providers/multipass            # Canonical Multipass local Ubuntu VM SSH backend
 internal/providers/ssh                  # static / BYO SSH backend
 internal/providers/daytona              # Daytona SSH lease + delegated SDK backend
 internal/providers/namespace            # Namespace devbox SSH backend

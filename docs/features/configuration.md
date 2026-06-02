@@ -373,6 +373,27 @@ Use `--desktop --browser` to bootstrap Xvfb, XFCE, x11vnc, noVNC/websockify,
 desktop input tools, screenshot tools, ffmpeg, and a packaged browser inside
 the container.
 
+### Multipass
+
+```yaml
+provider: multipass
+multipass:
+  cliPath: multipass
+  image: "26.04"
+  user: crabbox
+  workRoot: /work/crabbox
+  cpus: 4
+  memory: 8G
+  disk: 30G
+  launchTimeout: 20m
+```
+
+`provider: mp` and `provider: canonical-multipass` are aliases for `multipass`.
+The backend drives Canonical's `multipass` CLI on the local workstation, launches
+an Ubuntu VM with cloud-init, discovers the VM IP with `multipass info`, then
+uses the normal Crabbox SSH sync/run path. The Multipass image follows the
+portable `osImage` default unless `multipass.image` is set explicitly.
+
 ### Blacksmith Testbox
 
 ```yaml

@@ -121,6 +121,8 @@ type Config struct {
 	localContainerImageExplicit bool
 	AppleContainer              AppleContainerConfig
 	appleContainerImageExplicit bool
+	Multipass                   MultipassConfig
+	multipassImageExplicit      bool
 	Tailscale                   TailscaleConfig
 	Static                      StaticConfig
 	Results                     ResultsConfig
@@ -428,6 +430,17 @@ type AppleContainerConfig struct {
 	CPUs         int
 	Memory       string
 	ExtraRunArgs []string
+}
+
+type MultipassConfig struct {
+	CLIPath       string
+	Image         string
+	User          string
+	WorkRoot      string
+	CPUs          int
+	Memory        string
+	Disk          string
+	LaunchTimeout time.Duration
 }
 
 type StaticConfig struct {
@@ -779,6 +792,10 @@ func applyOSImageProviderDefaults(cfg *Config, force bool) {
 	if err != nil {
 		return
 	}
+	multipassImage, err := osImageDefaultMultipassImage(cfg.OSImage)
+	if err != nil {
+		return
+	}
 	base := baseConfig()
 	wasOSDefault := cfg.osImageProviderDefaults != ""
 	if force || cfg.Image == "" || (!cfg.imageExplicit && (cfg.Image == base.Image || wasOSDefault)) {
@@ -799,6 +816,9 @@ func applyOSImageProviderDefaults(cfg *Config, force bool) {
 	if force || cfg.AppleContainer.Image == "" || (!cfg.appleContainerImageExplicit && (cfg.AppleContainer.Image == base.AppleContainer.Image || wasOSDefault)) {
 		cfg.AppleContainer.Image = containerImage
 	}
+	if force || cfg.Multipass.Image == "" || (!cfg.multipassImageExplicit && (cfg.Multipass.Image == base.Multipass.Image || wasOSDefault)) {
+		cfg.Multipass.Image = multipassImage
+	}
 	cfg.osImageProviderDefaults = cfg.OSImage
 }
 
@@ -814,6 +834,10 @@ func MarkAppleContainerImageExplicit(cfg *Config) {
 	cfg.appleContainerImageExplicit = true
 }
 
+func MarkMultipassImageExplicit(cfg *Config) {
+	cfg.multipassImageExplicit = true
+}
+
 func baseConfig() Config {
 	home, _ := os.UserHomeDir()
 	sshKey := ""
@@ -825,6 +849,7 @@ func baseConfig() Config {
 	provider := "hetzner"
 	osImage := defaultOSImage
 	hetznerImage, azureImage, gcpImage, isloImage, containerImage, _ := osImageDefaultProviderImages(osImage)
+	multipassImage, _ := osImageDefaultMultipassImage(osImage)
 	return Config{
 		Profile:            "default",
 		Provider:           provider,
@@ -985,6 +1010,16 @@ func baseConfig() Config {
 			User:     "crabbox",
 			WorkRoot: "/work/crabbox",
 		},
+		Multipass: MultipassConfig{
+			CLIPath:       "multipass",
+			Image:         multipassImage,
+			User:          "crabbox",
+			WorkRoot:      defaultPOSIXWorkRoot,
+			CPUs:          4,
+			Memory:        "8G",
+			Disk:          "30G",
+			LaunchTimeout: 20 * time.Minute,
+		},
 		Tailscale: TailscaleConfig{
 			Tags:             []string{"tag:crabbox"},
 			HostnameTemplate: "crabbox-{slug}",
@@ -1050,6 +1085,7 @@ type fileConfig struct {
 	Sprites              *fileSpritesConfig                 `yaml:"sprites,omitempty"`
 	LocalContainer       *fileLocalContainerConfig          `yaml:"localContainer,omitempty"`
 	AppleContainer       *fileAppleContainerConfig          `yaml:"appleContainer,omitempty"`
+	Multipass            *fileMultipassConfig               `yaml:"multipass,omitempty"`
 	Tailscale            *fileTailscaleConfig               `yaml:"tailscale,omitempty"`
 	Static               *fileStaticConfig                  `yaml:"static,omitempty"`
 	Results              *fileResultsConfig                 `yaml:"results,omitempty"`
@@ -1421,6 +1457,17 @@ type fileAppleContainerConfig struct {
 	CPUs         int      `yaml:"cpus,omitempty"`
 	Memory       string   `yaml:"memory,omitempty"`
 	ExtraRunArgs []string `yaml:"extraRunArgs,omitempty"`
+}
+
+type fileMultipassConfig struct {
+	CLIPath       string `yaml:"cliPath,omitempty"`
+	Image         string `yaml:"image,omitempty"`
+	User          string `yaml:"user,omitempty"`
+	WorkRoot      string `yaml:"workRoot,omitempty"`
+	CPUs          int    `yaml:"cpus,omitempty"`
+	Memory        string `yaml:"memory,omitempty"`
+	Disk          string `yaml:"disk,omitempty"`
+	LaunchTimeout string `yaml:"launchTimeout,omitempty"`
 }
 
 type fileTailscaleConfig struct {
@@ -2492,6 +2539,33 @@ func applyFileConfig(cfg *Config, file fileConfig) error {
 			cfg.AppleContainer.ExtraRunArgs = append([]string(nil), file.AppleContainer.ExtraRunArgs...)
 		}
 	}
+	if file.Multipass != nil {
+		if file.Multipass.CLIPath != "" {
+			cfg.Multipass.CLIPath = file.Multipass.CLIPath
+		}
+		if file.Multipass.Image != "" {
+			cfg.Multipass.Image = file.Multipass.Image
+			cfg.multipassImageExplicit = true
+		}
+		if file.Multipass.User != "" {
+			cfg.Multipass.User = file.Multipass.User
+		}
+		if file.Multipass.WorkRoot != "" {
+			cfg.Multipass.WorkRoot = file.Multipass.WorkRoot
+		}
+		if file.Multipass.CPUs > 0 {
+			cfg.Multipass.CPUs = file.Multipass.CPUs
+		}
+		if file.Multipass.Memory != "" {
+			cfg.Multipass.Memory = file.Multipass.Memory
+		}
+		if file.Multipass.Disk != "" {
+			cfg.Multipass.Disk = file.Multipass.Disk
+		}
+		if file.Multipass.LaunchTimeout != "" {
+			applyLeaseDuration(&cfg.Multipass.LaunchTimeout, file.Multipass.LaunchTimeout)
+		}
+	}
 	if file.Tailscale != nil {
 		if file.Tailscale.Enabled != nil {
 			cfg.Tailscale.Enabled = *file.Tailscale.Enabled
@@ -3189,6 +3263,19 @@ func applyEnv(cfg *Config) error {
 	if extra := strings.Fields(os.Getenv("CRABBOX_APPLE_CONTAINER_EXTRA_RUN_ARGS")); len(extra) > 0 {
 		cfg.AppleContainer.ExtraRunArgs = extra
 	}
+	cfg.Multipass.CLIPath = getenv("CRABBOX_MULTIPASS_CLI", cfg.Multipass.CLIPath)
+	if image := os.Getenv("CRABBOX_MULTIPASS_IMAGE"); image != "" {
+		cfg.Multipass.Image = image
+		cfg.multipassImageExplicit = true
+	}
+	cfg.Multipass.User = getenv("CRABBOX_MULTIPASS_USER", cfg.Multipass.User)
+	cfg.Multipass.WorkRoot = getenv("CRABBOX_MULTIPASS_WORK_ROOT", cfg.Multipass.WorkRoot)
+	cfg.Multipass.CPUs = getenvInt("CRABBOX_MULTIPASS_CPUS", cfg.Multipass.CPUs)
+	cfg.Multipass.Memory = getenv("CRABBOX_MULTIPASS_MEMORY", cfg.Multipass.Memory)
+	cfg.Multipass.Disk = getenv("CRABBOX_MULTIPASS_DISK", cfg.Multipass.Disk)
+	if timeout := os.Getenv("CRABBOX_MULTIPASS_LAUNCH_TIMEOUT"); timeout != "" {
+		applyLeaseDuration(&cfg.Multipass.LaunchTimeout, timeout)
+	}
 	if value, ok := getenvBool("CRABBOX_TAILSCALE"); ok {
 		cfg.Tailscale.Enabled = value
 	}
@@ -3318,7 +3405,7 @@ func serverTypeForConfig(cfg Config) string {
 			return typer.ServerTypeForConfig(cfg)
 		}
 	}
-	if isBlacksmithProvider(cfg.Provider) || isStaticProvider(cfg.Provider) || cfg.Provider == "islo" || cfg.Provider == "sprites" || cfg.Provider == "local-container" {
+	if isBlacksmithProvider(cfg.Provider) || isStaticProvider(cfg.Provider) || cfg.Provider == "islo" || cfg.Provider == "sprites" || cfg.Provider == "local-container" || cfg.Provider == "multipass" {
 		return ""
 	}
 	if cfg.Provider == "namespace-devbox" || cfg.Provider == "namespace" {
@@ -3367,7 +3454,7 @@ func serverTypeForProviderClass(provider, class string) string {
 			return typer.ServerTypeForClass(class)
 		}
 	}
-	if isBlacksmithProvider(provider) || isStaticProvider(provider) || provider == "islo" || provider == "sprites" || provider == "local-container" {
+	if isBlacksmithProvider(provider) || isStaticProvider(provider) || provider == "islo" || provider == "sprites" || provider == "local-container" || provider == "multipass" {
 		return ""
 	}
 	if provider == "namespace-devbox" || provider == "namespace" {

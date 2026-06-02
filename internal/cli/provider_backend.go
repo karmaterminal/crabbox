@@ -690,7 +690,7 @@ func validateActionsRunnerCapability(backend Backend, cfg Config) error {
 	if _, ok := backend.(SSHLeaseBackend); !ok {
 		return exit(2, "--actions-runner requires an SSH lease provider")
 	}
-	if name := backend.Spec().Name; name == "local-container" || name == "apple-container" {
+	if name := backend.Spec().Name; name == "local-container" || name == "apple-container" || name == "multipass" {
 		return exit(2, "--actions-runner is not supported for provider=%s; use normal crabbox run or a remote SSH provider", name)
 	}
 	if !supportsGitHubActionsRunnerTarget(SSHTarget{TargetOS: cfg.TargetOS, WindowsMode: cfg.WindowsMode}) {

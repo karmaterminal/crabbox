@@ -66,6 +66,7 @@ ssh              Existing SSH host (no provisioning)      Linux, macOS, Windows
 parallels        Parallels Desktop linked clones          Linux, macOS, Windows
 proxmox          Proxmox VE QEMU VM clones                Linux
 local-container  Local Docker-compatible containers       Linux
+multipass        Canonical Multipass local Ubuntu VMs     Linux
 daytona          Daytona sandboxes (short-lived SSH)      Linux
 exe-dev          exe.dev managed VMs (public SSH)         Linux
 namespace-devbox Namespace Devboxes                       Linux
@@ -105,6 +106,7 @@ wandb                   Weights & Biases run sandboxes
 - [Parallels](../providers/parallels.md): local or remote Mac Parallels Desktop VM clones and small Mac fleets.
 - [Proxmox](../providers/proxmox.md): direct Proxmox VE Linux QEMU VM clones.
 - [Local Container](../providers/local-container.md): local Linux containers through Docker-compatible runtimes.
+- [Multipass](../providers/multipass.md): local Ubuntu VMs through Canonical Multipass.
 - [Daytona](../providers/daytona.md): Daytona SDK/toolbox sandbox leases.
 - [exe.dev](../providers/exe-dev.md): exe.dev VMs exposed as SSH leases.
 - [Namespace Devbox](../providers/namespace-devbox.md): Namespace Devbox SSH leases.
@@ -252,6 +254,10 @@ list, and cleanup.
   Docker-compatible runtime, publishes SSH on loopback, syncs over SSH, and
   removes it on `stop`. Cache volumes use Docker named volumes. It does not
   bind-mount the repo or the Docker socket by default. Reads `DOCKER_HOST`.
+- **multipass** (alias `mp`) — launches a local Ubuntu VM through Canonical
+  Multipass with cloud-init, resolves the VM IP through `multipass info`, syncs
+  over SSH, and deletes the VM with `multipass delete --purge`. Cache volumes
+  are host directories mounted into the VM.
 - **daytona** — creates a sandbox from `daytona.snapshot`, syncs and runs through
   Daytona's SDK/toolbox APIs, and mints short-lived SSH tokens only for explicit
   `crabbox ssh` access.

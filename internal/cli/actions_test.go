@@ -257,6 +257,14 @@ func TestValidateActionsRunnerCapabilityRejectsAppleContainer(t *testing.T) {
 	}
 }
 
+func TestValidateActionsRunnerCapabilityRejectsMultipass(t *testing.T) {
+	backend := testSSHBackend{spec: ProviderSpec{Name: "multipass"}}
+	err := validateActionsRunnerCapability(backend, Config{Provider: "multipass", TargetOS: targetLinux})
+	if err == nil || !strings.Contains(err.Error(), "provider=multipass") {
+		t.Fatalf("multipass actions runner error=%v", err)
+	}
+}
+
 func TestLocalActionsWorkflowPathRequiresRepoWorkflowFile(t *testing.T) {
 	root := t.TempDir()
 	workflow := filepath.Join(root, ".github", "workflows", "hydrate.yml")

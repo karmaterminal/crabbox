@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added `provider: multipass` for local Ubuntu VM SSH leases through Canonical Multipass, including cloud-init bootstrap, Crabbox sync/run lifecycle, cleanup, and cache-volume support. Thanks @jwmoss.
+
 ### Changed
 
 ### Fixed
