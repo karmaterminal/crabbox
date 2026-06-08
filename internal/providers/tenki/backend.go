@@ -212,6 +212,38 @@ func (b *tenkiBackend) List(ctx context.Context, req ListRequest) ([]LeaseView, 
 	return out, nil
 }
 
+type tenkiLeaseListView struct {
+	ID         string            `json:"id"`
+	Slug       string            `json:"slug,omitempty"`
+	Provider   string            `json:"provider"`
+	State      string            `json:"state"`
+	ServerID   string            `json:"serverId"`
+	Name       string            `json:"name"`
+	ServerType string            `json:"serverType"`
+	Labels     map[string]string `json:"labels,omitempty"`
+}
+
+func (b *tenkiBackend) ListJSON(ctx context.Context, req ListRequest) (any, error) {
+	servers, err := b.List(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tenkiLeaseListView, 0, len(servers))
+	for _, server := range servers {
+		out = append(out, tenkiLeaseListView{
+			ID:         blank(server.Labels["lease"], server.DisplayID()),
+			Slug:       server.Labels["slug"],
+			Provider:   blank(server.Provider, server.Labels["provider"]),
+			State:      blank(server.Labels["state"], server.Status),
+			ServerID:   server.DisplayID(),
+			Name:       server.Name,
+			ServerType: server.ServerType.Name,
+			Labels:     server.Labels,
+		})
+	}
+	return out, nil
+}
+
 func (b *tenkiBackend) Doctor(ctx context.Context, _ DoctorRequest) (DoctorResult, error) {
 	if _, err := b.runTenki(ctx, []string{"--version"}, nil, nil); err != nil {
 		return DoctorResult{}, exit(2, "provider=tenki requires the tenki CLI on PATH and authenticated: %v", err)

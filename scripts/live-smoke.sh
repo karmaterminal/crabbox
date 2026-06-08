@@ -449,7 +449,14 @@ tenki_smoke() {
 
   run_in_repo "$cb" status --provider tenki --id "$slug" --wait --wait-timeout "${CRABBOX_LIVE_TENKI_WAIT_TIMEOUT:-120s}"
   run_in_repo "$cb" run --provider tenki --id "$slug" --no-sync -- echo crabbox-tenki-ok
-  run_in_repo "$cb" list --provider tenki --json | jq 'map({id:(.id // .CloudID),slug:(.slug // .labels.slug),provider:(.provider // .Provider // .labels.provider),state:(.state // .labels.state // .status)})'
+  local list_json
+  capture_run list_json run_in_repo "$cb" list --provider tenki --json
+  printf '%s\n' "$list_json" | jq 'map({id,serverId,slug,provider,state})'
+  if ! printf '%s\n' "$list_json" | jq -e --arg lease "$lease" --arg session "$session" \
+    'any(.[]; .id == $lease and .serverId == $session and .provider == "tenki")' >/dev/null; then
+    echo "tenki list JSON missing lease=$lease session=$session" >&2
+    return 1
+  fi
 
   "$tenki_cli" sandbox pause "${tenki_sandbox_args[@]}" --session "$session"
   local pause_timeout="${CRABBOX_LIVE_TENKI_PAUSE_TIMEOUT:-60}"

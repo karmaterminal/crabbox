@@ -50,7 +50,7 @@ case "$1" in
     printf 'crabbox-tenki-ok\\n'
     ;;
   list)
-    printf '[{"id":"cbx_123456789abc","slug":"tenki-smoke-test","provider":"tenki","state":"ready"}]\\n'
+    printf '[{"id":"cbx_123456789abc","serverId":"00000000-0000-0000-0000-000000000001","slug":"tenki-smoke-test","provider":"tenki","state":"ready"}]\\n'
     ;;
   stop)
     printf 'stopped %s\\n' "\${*: -1}"
@@ -129,6 +129,7 @@ esac
   assert.match(crabboxCalls, /warmup --provider tenki --slug tenki-smoke-/);
   assert.match(crabboxCalls, /status --provider tenki --id tenki-smoke-test --wait --wait-timeout 120s/);
   assert.match(crabboxCalls, /run --provider tenki --id tenki-smoke-test --no-sync -- echo crabbox-tenki-ok/);
+  assert.match(crabboxCalls, /list --provider tenki --json/);
   assert.match(crabboxCalls, /status --provider tenki --id tenki-smoke-test --wait --wait-timeout 2s/);
   assert.match(crabboxCalls, /stop --provider tenki tenki-smoke-test/);
 

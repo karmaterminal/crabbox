@@ -351,6 +351,34 @@ func TestTenkiSessionToServerDoesNotExposeSessionIDAsIP(t *testing.T) {
 	}
 }
 
+func TestTenkiListJSONUsesCrabboxLeaseID(t *testing.T) {
+	runner := &fakeRunner{}
+	runner.run = func(req LocalCommandRequest) (LocalCommandResult, error) {
+		runner.calls = append(runner.calls, req)
+		if got := strings.Join(req.Args, " "); got != "sandbox list --output json --tags crabbox,crabbox-provider-tenki" {
+			t.Fatalf("unexpected command: %s %s", req.Name, got)
+		}
+		return LocalCommandResult{Stdout: `[{"id":"session-1","name":"crabbox-blue","state":"RUNNING","metadata":{"crabbox_provider":"tenki","crabbox_lease_id":"cbx_123","crabbox_slug":"blue"},"tags":["crabbox-provider-tenki"]}]`}, nil
+	}
+	backend := &tenkiBackend{
+		cfg: Config{Tenki: TenkiConfig{CLIPath: "tenki"}},
+		rt:  Runtime{Exec: runner, Stdout: io.Discard, Stderr: io.Discard},
+	}
+
+	raw, err := backend.ListJSON(context.Background(), ListRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	views, ok := raw.([]tenkiLeaseListView)
+	if !ok || len(views) != 1 {
+		t.Fatalf("unexpected JSON list view: %#v", raw)
+	}
+	view := views[0]
+	if view.ID != "cbx_123" || view.ServerID != "session-1" || view.Slug != "blue" || view.Provider != tenkiProvider || view.State != "ready" {
+		t.Fatalf("unexpected JSON list entry: %#v", view)
+	}
+}
+
 func TestTenkiSessionToServerPreservesLeaseTimingMetadata(t *testing.T) {
 	backend := &tenkiBackend{}
 	server := backend.sessionToServer(Config{
