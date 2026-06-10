@@ -398,3 +398,11 @@ func daytonaError(action string, err error) error {
 	}
 	return fmt.Errorf("daytona %s: %w", action, err)
 }
+
+func daytonaIsNotFoundError(err error) bool {
+	var apiErr *daytona.GenericOpenAPIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(apiErr.Error()), "404")
+}
