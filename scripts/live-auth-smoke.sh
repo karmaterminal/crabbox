@@ -10,6 +10,14 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cb="${CRABBOX_BIN:-$root/bin/crabbox}"
 config_cwd="$PWD"
 config_paths=()
+tmp_files=()
+
+cleanup_tmp_files() {
+  if ((${#tmp_files[@]} > 0)); then
+    rm -f "${tmp_files[@]}"
+  fi
+}
+trap cleanup_tmp_files EXIT
 
 add_config_path() {
   local path="$1"
@@ -164,19 +172,31 @@ elif [[ "$access_smoke" != "0" ]]; then
   exit 2
 fi
 
-if ! whoami="$(env -u CRABBOX_COORDINATOR_TOKEN CRABBOX_COORDINATOR="$coord" "$cb" whoami --json 2>&1)"; then
-  echo "failed coordinator whoami: $whoami" >&2
+whoami_err="$(mktemp)"
+tmp_files+=("$whoami_err")
+set +e
+whoami="$(env -u CRABBOX_COORDINATOR_TOKEN CRABBOX_COORDINATOR="$coord" "$cb" whoami --json 2>"$whoami_err")"
+whoami_status=$?
+set -e
+if [[ "$whoami_status" -ne 0 ]]; then
+  echo "failed coordinator whoami: $(cat "$whoami_err")" >&2
   exit 1
 fi
 if ! printf '%s\n' "$whoami" | jq -e '(.auth == "bearer" or .auth == "github") and (.owner | length > 0) and (.org | length > 0)' >/dev/null; then
   echo "failed coordinator whoami shape: $whoami" >&2
+  if [[ -s "$whoami_err" ]]; then
+    echo "coordinator whoami stderr: $(cat "$whoami_err")" >&2
+  fi
   exit 1
+fi
+if [[ -s "$whoami_err" ]]; then
+  cat "$whoami_err" >&2
 fi
 whoami_auth="$(printf '%s\n' "$whoami" | jq -r '.auth')"
 echo "ok coordinator whoami auth=$whoami_auth owner=$(printf '%s\n' "$whoami" | jq -r '.owner') org=$(printf '%s\n' "$whoami" | jq -r '.org')"
 
 body="$(mktemp)"
-trap 'rm -f "$body"' EXIT
+tmp_files+=("$body")
 
 status="$(request_json "$shared_token" "/v1/whoami" "$body" \
   "X-Crabbox-Owner: $owner" \

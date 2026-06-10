@@ -35,6 +35,7 @@ test("live auth smoke removes bearer curl config after curl transport failure", 
 		`#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$*" == "whoami --json" ]]; then
+  printf 'warning: fake diagnostic on stderr\\n' >&2
   printf '{"auth":"bearer","owner":"alice@example.com","org":"example-org"}\\n'
   exit 0
 fi
@@ -73,6 +74,8 @@ exit 7
 	});
 
 	assert.equal(result.status, 7, result.stderr || result.stdout);
+	assert.doesNotMatch(result.stderr, /failed coordinator whoami shape/);
+	assert.match(result.stderr, /warning: fake diagnostic on stderr/);
 	const leakedPath = fs.readFileSync(curlConfigPath, "utf8");
 	assert.equal(fs.existsSync(leakedPath), false, `expected curl config to be removed: ${leakedPath}`);
 });
