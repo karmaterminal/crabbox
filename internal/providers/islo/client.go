@@ -35,11 +35,12 @@ type isloAPI interface {
 // `POST /sandboxes/{name}/shares` API. It is the islo-specific shape of the
 // generic BridgePeer entry surfaced by the pond bridge plane.
 type IsloShare struct {
-	ShareID   string    `json:"share_id"`
-	URL       string    `json:"url"`
-	Port      int       `json:"port"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
+	ShareID      string    `json:"share_id"`
+	URL          string    `json:"url"`
+	Port         int       `json:"port"`
+	CreatedAt    time.Time `json:"created_at"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	ExpiresAtSet bool      `json:"-"`
 }
 
 type isloSDKClient struct {
@@ -287,6 +288,7 @@ func isloShareFromAPI(raw isloShareResponse) IsloShare {
 		share.CreatedAt = t
 	}
 	if raw.ExpiresAt != nil && *raw.ExpiresAt != "" {
+		share.ExpiresAtSet = true
 		if t, err := time.Parse(time.RFC3339, *raw.ExpiresAt); err == nil {
 			share.ExpiresAt = t
 		}

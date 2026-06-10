@@ -8,6 +8,8 @@ import (
 	core "github.com/openclaw/crabbox/internal/cli"
 )
 
+const isloShareReuseSkew = 30 * time.Second
+
 // PublishPeer implements core.BridgeProvider. It is idempotent — if a share
 // for the requested port already exists, the existing share is returned
 // rather than minting another one. This matters because every call to the
@@ -26,8 +28,9 @@ func (b *isloBackend) PublishPeer(ctx context.Context, leaseID string, port int,
 	}
 	existing, err := client.ListShares(ctx, name)
 	if err == nil {
+		now := b.now()
 		for _, share := range existing {
-			if share.Port == port && share.URL != "" {
+			if isloShareReusable(share, port, now) {
 				return bridgeTargetFromShare(share), nil
 			}
 		}
@@ -37,6 +40,16 @@ func (b *isloBackend) PublishPeer(ctx context.Context, leaseID string, port int,
 		return core.BridgePeerTarget{}, err
 	}
 	return bridgeTargetFromShare(share), nil
+}
+
+func isloShareReusable(share IsloShare, port int, now time.Time) bool {
+	if share.Port != port || share.URL == "" {
+		return false
+	}
+	if share.ExpiresAt.IsZero() {
+		return !share.ExpiresAtSet
+	}
+	return share.ExpiresAt.After(now.Add(isloShareReuseSkew))
 }
 
 // ListPeerTargets implements core.BridgeProvider. It is side-effect free —
