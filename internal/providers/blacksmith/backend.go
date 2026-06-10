@@ -625,7 +625,25 @@ func (b *blacksmithBackend) Status(ctx context.Context, req StatusRequest) (stat
 		if b.rt.Clock.Now().After(deadline) {
 			return statusView{}, exit(5, "%s", blacksmithWaitTimeoutMessage(req.ID, lastState.State))
 		}
-		time.Sleep(5 * time.Second)
+		delay := blacksmithStatusPollDelay
+		if remaining := deadline.Sub(b.rt.Clock.Now()); remaining < delay {
+			delay = remaining
+		}
+		if delay <= 0 {
+			return statusView{}, exit(5, "%s", blacksmithWaitTimeoutMessage(req.ID, lastState.State))
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return statusView{}, context.Cause(ctx)
+		case <-timer.C:
+		}
 	}
 }
 

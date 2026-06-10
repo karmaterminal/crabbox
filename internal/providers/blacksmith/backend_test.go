@@ -1174,6 +1174,32 @@ func TestBlacksmithStatusWaitTimeoutMentionsQueuedState(t *testing.T) {
 	}
 }
 
+func TestBlacksmithStatusWaitReturnsOnContextCancellation(t *testing.T) {
+	originalDelay := blacksmithStatusPollDelay
+	blacksmithStatusPollDelay = 500 * time.Millisecond
+	t.Cleanup(func() { blacksmithStatusPollDelay = originalDelay })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	runner := &blacksmithFuncRunner{fn: func(LocalCommandRequest) (LocalCommandResult, error) {
+		cancel()
+		return LocalCommandResult{
+			Stdout: "tbx_123 queued openclaw .github/workflows/testbox.yml test main 2026-05-06T00:00:00Z\n",
+		}, nil
+	}}
+	backend := newTestBlacksmithBackend(baseConfig(), runner)
+	started := time.Now()
+	_, err := backend.Status(ctx, StatusRequest{ID: "tbx_123", Wait: true, WaitTimeout: time.Minute})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Status err=%v, want context.Canceled", err)
+	}
+	if elapsed := time.Since(started); elapsed >= 200*time.Millisecond {
+		t.Fatalf("Status returned after %s, want prompt cancellation", elapsed)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("runner calls=%d, want one status poll before cancellation", len(runner.calls))
+	}
+}
+
 func TestBlacksmithBackendListJSONKeepsParsedTableShape(t *testing.T) {
 	runner := &blacksmithFuncRunner{fn: func(LocalCommandRequest) (LocalCommandResult, error) {
 		return LocalCommandResult{
