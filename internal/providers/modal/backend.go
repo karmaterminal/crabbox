@@ -296,7 +296,13 @@ func (b *modalBackend) createSandbox(ctx context.Context, client modalAPI, repo 
 		return "", modalSandbox{}, "", exit(5, "modal create sandbox returned no sandbox id")
 	}
 	if err := claimLeaseForRepoProviderPond(leaseID, slug, providerName, cfg.Pond, repo.Root, cfg.IdleTimeout, reclaim); err != nil {
-		_ = client.Terminate(context.Background(), sandbox.ID)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if cleanupErr := client.Terminate(cleanupCtx, sandbox.ID); cleanupErr != nil {
+			leakErr := fmt.Errorf("cleanup modal sandbox %s after claim failure: %w; run `crabbox stop --provider modal --id %s` to retry cleanup", sandbox.ID, cleanupErr, sandbox.ID)
+			fmt.Fprintf(b.rt.Stderr, "warning: %v\n", leakErr)
+			return "", modalSandbox{}, "", errors.Join(err, leakErr)
+		}
 		return "", modalSandbox{}, "", err
 	}
 	return leaseID, sandbox, slug, nil
