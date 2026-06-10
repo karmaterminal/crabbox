@@ -2,9 +2,12 @@ package asciibox
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -96,6 +99,66 @@ func TestClientUsesOfficialAsciiBoxCLI(t *testing.T) {
 	}
 	if !hasEnv(runner.env[3], "SSH_AUTH_SOCK=") {
 		t.Fatalf("ssh setup env should disable agent identities: %v", runner.env[3])
+	}
+}
+
+func TestClientTightensExistingConfigFilePermissions(t *testing.T) {
+	home := t.TempDir()
+	configPath := filepath.Join(home, "Library/Application Support/ascii/box/config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{"token":"old"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(configPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &fakeCommandRunner{configPath: configPath}
+	client := &client{apiKey: "box_key", apiURL: "https://ascii.dev", cliPath: "box", home: home, runner: runner}
+	if _, err := client.CreateBox(context.Background(), createRequest{TTL: 30 * time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("config permissions=%#o, want 0600", got)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]string
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("config is invalid JSON: %v", err)
+	}
+	if cfg["token"] != "box_key" {
+		t.Fatalf("token=%q, want box_key", cfg["token"])
+	}
+}
+
+func TestClientRejectsSymlinkConfigFile(t *testing.T) {
+	home := t.TempDir()
+	configPath := filepath.Join(home, "Library/Application Support/ascii/box/config.json")
+	targetPath := filepath.Join(home, "target.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte(`{"token":"old"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(targetPath, configPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	runner := &fakeCommandRunner{configPath: configPath}
+	client := &client{apiKey: "box_key", apiURL: "https://ascii.dev", cliPath: "box", home: home, runner: runner}
+	if _, err := client.CreateBox(context.Background(), createRequest{TTL: 30 * time.Minute}); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("CreateBox err=%v, want symlink rejection", err)
 	}
 }
 
