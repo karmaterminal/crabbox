@@ -114,6 +114,11 @@ func RemoveLeaseClaim(leaseID string) {
 	removeLeaseClaim(leaseID)
 }
 
+func ValidateAzureSSHCIDRsForAcquire(ctx context.Context, cfg Config) error {
+	_, err := azureSSHCIDRsForRules(ctx, cfg, nil)
+	return err
+}
+
 func UpdateLeaseClaimCacheVolumes(leaseID string, specs []string) error {
 	return updateLeaseClaimCacheVolumes(leaseID, specs)
 }
