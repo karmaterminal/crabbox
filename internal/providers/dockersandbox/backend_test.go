@@ -595,7 +595,10 @@ func TestCreateSandboxRemovesSandboxWhenClaimSetupFails(t *testing.T) {
 		name          string
 		requestedSlug string
 		setupState    func(t *testing.T)
+		rmReply       scriptedReply
 		want          string
+		wantAlso      []string
+		wantWarning   string
 	}{
 		{
 			name:          "slug allocation",
@@ -626,18 +629,51 @@ func TestCreateSandboxRemovesSandboxWhenClaimSetupFails(t *testing.T) {
 			},
 			want: "write claim",
 		},
+		{
+			name:          "claim persistence cleanup failure",
+			requestedSlug: "",
+			setupState: func(t *testing.T) {
+				stateDir := t.TempDir()
+				claimsDir := filepathJoin(stateDir, "crabbox", "claims")
+				if err := os.MkdirAll(claimsDir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(claimsDir, 0o500); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = os.Chmod(claimsDir, 0o700) })
+				t.Setenv("XDG_STATE_HOME", stateDir)
+			},
+			rmReply: scriptedReply{stderr: "rm failed", exitCode: 1},
+			want:    "write claim",
+			wantAlso: []string{
+				"cleanup docker-sandbox sandbox crabbox-my-app-010203 after claim setup failure",
+				"sbx rm --force crabbox-my-app-010203 exited 1: rm failed",
+				"run `sbx rm --force crabbox-my-app-010203` to retry cleanup",
+			},
+			wantWarning: "warning: cleanup docker-sandbox sandbox crabbox-my-app-010203",
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setupState(t)
 			runner := newRunner(map[string]scriptedReply{
 				"create": {stdout: ""},
-				"rm":     {stdout: ""},
+				"rm":     tt.rmReply,
 			}, nil)
-			backend := newTestBackend(newTestConfig(), runner, io.Discard, io.Discard)
+			var stderr bytes.Buffer
+			backend := newTestBackend(newTestConfig(), runner, io.Discard, &stderr)
 			cli := &sbxCLI{cfg: backend.cfg, rt: backend.rt}
 			_, _, _, err := backend.createSandbox(context.Background(), cli, Repo{Name: "my-app", Root: repoRoot}, false, tt.requestedSlug)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("createSandbox err=%v want %q", err, tt.want)
+			}
+			for _, want := range tt.wantAlso {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("createSandbox err=%v want %q", err, want)
+				}
+			}
+			if tt.wantWarning != "" && !strings.Contains(stderr.String(), tt.wantWarning) {
+				t.Fatalf("stderr=%q want %q", stderr.String(), tt.wantWarning)
 			}
 			if got, want := callVerbs(runner), []string{"create", "rm"}; !reflect.DeepEqual(got, want) {
 				t.Fatalf("verbs=%v want cleanup verbs %v", got, want)
