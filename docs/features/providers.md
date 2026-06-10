@@ -39,6 +39,17 @@ provider-specific path in `scripts/live-smoke.sh`. The smoke should use explicit
 remote command should not assume a particular project language unless it is
 provider-specific.
 
+If the provider is still unimplemented or the only credible proof is an
+environment-specific local runbook, keep the smoke manual and document the real
+acceptance contract first. Do not add a placeholder `scripts/live-smoke.sh`
+branch that cannot run on a fresh operator machine with the documented
+prerequisites.
+
+Incus is the current example of an explicit opt-in local path: the default live
+matrix still skips it, while `CRABBOX_LIVE_PROVIDERS=incus` and
+`CRABBOX_LIVE_DOCTOR_PROVIDERS=incus` run the documented Apple Silicon / local
+testbed contract when those prerequisites are actually present.
+
 ## Brokered providers
 
 Four providers can be brokered through the Worker. Brokering adds lease records,
@@ -73,6 +84,7 @@ sync/run/release path. None of them go through the Worker.
 ssh              Existing SSH host (no provisioning)      Linux, macOS, Windows
 parallels        Parallels Desktop linked clones          Linux, macOS, Windows
 proxmox          Proxmox VE QEMU VM clones                Linux
+incus            Incus containers or VMs over SSH         Linux
 local-container  Local Docker-compatible containers       Linux
 multipass        Canonical Multipass local Ubuntu VMs     Linux
 daytona          Daytona sandboxes (short-lived SSH)      Linux
@@ -124,6 +136,7 @@ railway                 Railway service status and stop controls
 - [Static SSH](../providers/ssh.md): existing Linux, macOS, and Windows SSH hosts.
 - [Parallels](../providers/parallels.md): local or remote Mac Parallels Desktop VM clones and small Mac fleets.
 - [Proxmox](../providers/proxmox.md): direct Proxmox VE Linux QEMU VM clones.
+- [Incus](../providers/incus.md): direct Incus Linux SSH leases plus an opt-in Apple Silicon / local live smoke contract.
 - [Local Container](../providers/local-container.md): local Linux containers through Docker-compatible runtimes.
 - [Multipass](../providers/multipass.md): local Ubuntu VMs through Canonical Multipass.
 - [Daytona](../providers/daytona.md): Daytona SDK/toolbox sandbox leases.
