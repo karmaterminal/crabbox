@@ -345,12 +345,24 @@ func (b *modalBackend) resolveSandboxID(ctx context.Context, client modalAPI, id
 		if err != nil {
 			return "", "", "", err
 		}
-		return id, sandbox.ID, modalSlug(id, sandbox), nil
+		slug := modalSlug(id, sandbox)
+		if repoRoot != "" {
+			if err := claimLeaseForRepoProvider(id, slug, providerName, repoRoot, b.cfg.IdleTimeout, reclaim); err != nil {
+				return "", "", "", err
+			}
+		}
+		return id, sandbox.ID, slug, nil
 	}
 	sandbox, err := client.GetSandbox(ctx, id)
 	if err == nil && isCrabboxModalSandbox(sandbox) {
 		leaseID := modalLeaseID(sandbox)
-		return leaseID, sandbox.ID, modalSlug(leaseID, sandbox), nil
+		slug := modalSlug(leaseID, sandbox)
+		if repoRoot != "" {
+			if err := claimLeaseForRepoProvider(leaseID, slug, providerName, repoRoot, b.cfg.IdleTimeout, reclaim); err != nil {
+				return "", "", "", err
+			}
+		}
+		return leaseID, sandbox.ID, slug, nil
 	}
 	if err != nil && !isModalNotFoundError(err) {
 		return "", "", "", modalError("get sandbox", err)
