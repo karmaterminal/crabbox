@@ -48,6 +48,9 @@ the default. Most names accept aliases (listed below).
 Each page below maps to an adapter under `internal/providers/<dir>`. The
 **Provider id** is the canonical `--provider` value; **Aliases** also resolve.
 
+Some provider pages also preserve environment-specific validation runbooks when
+the built-in adapter needs a separate local smoke contract.
+
 ### SSH lease
 
 | Page | Provider id | Aliases | Targets | Brokered? |
@@ -57,6 +60,7 @@ Each page below maps to an adapter under `internal/providers/<dir>`. The
 | [Google Cloud](gcp.md) | `gcp` | `google`, `google-cloud` | Linux | yes |
 | [Hetzner](hetzner.md) | `hetzner` | — | Linux | yes |
 | [Proxmox](proxmox.md) | `proxmox` | — | Linux | no (direct) |
+| [Incus](incus.md) | `incus` | — | Linux | no (direct) |
 | [Parallels](parallels.md) | `parallels` | — | Linux, macOS, Windows | no (direct) |
 | [Static SSH](ssh.md) | `ssh` | `static`, `static-ssh` | Linux, macOS, Windows | no (static) |
 | [Local Container](local-container.md) | `local-container` | `docker`, `container`, `local-docker` | Linux | no (local) |
@@ -106,6 +110,10 @@ reports.
   Local Container aliases.
 - ASCII Box is an SSH-lease provider. Crabbox uses the documented `box --json`
   CLI for lifecycle/status/delete, then runs normal sync and commands over SSH.
+- `incus` is a direct Linux SSH-lease provider that stores Crabbox ownership and
+  expiry metadata in Incus `user.crabbox.*` instance config keys. Real Apple
+  Silicon smoke still follows the separate local testbed contract documented on
+  the provider page.
 - Capability flags (`--desktop`, `--browser`, `--code`, VNC) are validated
   against each provider's declared feature set. Among the SSH-lease providers,
   desktop/browser/code surfaces are richest on `aws`, `azure`, `hetzner`,
