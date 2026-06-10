@@ -135,27 +135,22 @@ func (b *backend) Acquire(ctx context.Context, req AcquireRequest) (LeaseTarget,
 		_ = b.deleteVM(context.Background(), name)
 		return LeaseTarget{}, err
 	}
+	cleanupUnclaimedVM := func() {
+		_ = b.stopVM(context.Background(), name)
+		_ = b.deleteVM(context.Background(), name)
+	}
 	ip, err := b.waitForIP(ctx, name)
 	if err != nil {
-		if !req.Keep {
-			_ = b.stopVM(context.Background(), name)
-			_ = b.deleteVM(context.Background(), name)
-		}
+		cleanupUnclaimedVM()
 		return LeaseTarget{}, err
 	}
 	if err := b.injectSSHKey(ctx, name, cfg.Tart.User, publicKey); err != nil {
-		if !req.Keep {
-			_ = b.stopVM(context.Background(), name)
-			_ = b.deleteVM(context.Background(), name)
-		}
+		cleanupUnclaimedVM()
 		return LeaseTarget{}, err
 	}
 	if cfg.Desktop {
 		if err := b.enableScreenSharing(ctx, name); err != nil {
-			if !req.Keep {
-				_ = b.stopVM(context.Background(), name)
-				_ = b.deleteVM(context.Background(), name)
-			}
+			cleanupUnclaimedVM()
 			return LeaseTarget{}, err
 		}
 	}
@@ -171,18 +166,15 @@ func (b *backend) Acquire(ctx context.Context, req AcquireRequest) (LeaseTarget,
 	inst := tartInstance{Name: name, State: "running", Running: true, Source: cfg.Tart.Image}
 	lease, err := b.prepareLease(ctx, cfg, inst, ip, claim, true)
 	if err != nil {
-		if !req.Keep {
-			_ = b.stopVM(context.Background(), name)
-			_ = b.deleteVM(context.Background(), name)
-		}
+		cleanupUnclaimedVM()
 		return LeaseTarget{}, err
 	}
 	if err := claimLeaseForRepoProviderScopePond(leaseID, slug, providerName, instanceScope(name), cfg.Pond, req.Repo.Root, cfg.IdleTimeout, req.Reclaim); err != nil {
-		if !req.Keep {
-			_ = b.stopVM(context.Background(), name)
-			_ = b.deleteVM(context.Background(), name)
-		}
+		cleanupUnclaimedVM()
 		return LeaseTarget{}, err
+	}
+	if req.Keep {
+		cleanupKey = false
 	}
 	if err := updateLeaseClaimEndpoint(leaseID, lease.Server, lease.SSH); err != nil {
 		if !req.Keep {

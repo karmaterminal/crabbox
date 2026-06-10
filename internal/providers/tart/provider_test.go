@@ -262,6 +262,60 @@ func TestShouldCleanupSkipsMissingClaim(t *testing.T) {
 	}
 }
 
+func TestAcquireKeepIPFailureDeletesUnclaimedVMAndKey(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("HOME", configHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	binDir := t.TempDir()
+	fakeTart := filepath.Join(binDir, "tart")
+	if err := os.WriteFile(fakeTart, []byte("#!/bin/sh\nsleep 0.2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	originalStartupObserve := startupObserveTimeout
+	startupObserveTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { startupObserveTimeout = originalStartupObserve })
+
+	runner := &recordingRunner{
+		responses: map[string]core.LocalCommandResult{
+			commandKey([]string{"list", "--source", "local", "--format", "json"}): {Stdout: "[]"},
+		},
+	}
+	cfg := core.BaseConfig()
+	cfg.Provider = providerName
+	b := newBackend(Provider{}.Spec(), cfg, core.Runtime{Stdout: io.Discard, Stderr: io.Discard, Exec: runner}).(*backend)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if _, err := b.Acquire(ctx, core.AcquireRequest{Keep: true, Repo: core.Repo{Root: t.TempDir()}}); err == nil {
+		t.Fatal("Acquire succeeded")
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := filepath.Glob(filepath.Join(configDir, "crabbox", "testboxes", "*", "id_ed25519"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 0 {
+		t.Fatalf("unclaimed failed VM key count=%d paths=%v, want 0", len(keys), keys)
+	}
+	stopped, deleted := false, false
+	for _, call := range runner.calls {
+		if len(call.Args) > 0 && call.Args[0] == "stop" {
+			stopped = true
+		}
+		if len(call.Args) > 0 && call.Args[0] == "delete" {
+			deleted = true
+		}
+	}
+	if !stopped || !deleted {
+		t.Fatalf("keep=true unclaimed post-start failure should cleanup VM, stopped=%t deleted=%t calls=%v", stopped, deleted, runner.calls)
+	}
+}
+
 func TestStartVMArgsHeadless(t *testing.T) {
 	args := startVMArgs("crabbox-blue-1234abcd")
 	if len(args) != 3 || args[0] != "run" || args[2] != "--no-graphics" {
