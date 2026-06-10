@@ -126,6 +126,9 @@ func (b *backend) Acquire(ctx context.Context, req core.AcquireRequest) (core.Le
 	if err != nil {
 		return core.LeaseTarget{}, err
 	}
+	if req.Keep {
+		cleanupKey = false
+	}
 	c, err := b.inspectContainer(ctx, containerID)
 	if err != nil {
 		if !req.Keep {
