@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed pond ACL auto-bootstrap to preserve HuJSON comments, field ordering, and unrelated policy sections while adding only the missing pond tag owner and self-peering row.
 - Fixed brokered Tailscale tag-ownership failures to return actionable exact-match and `tagOwners` guidance while preserving the raw API error.
 - Fixed managed Linux Tailscale bootstrap to deliver auth keys through stdin instead of exposing them in `tailscale up` process arguments.
 - Fixed trusted reverse-proxy identity deployments to support a secret-bound assertion when direct coordinator access cannot be network-isolated.
