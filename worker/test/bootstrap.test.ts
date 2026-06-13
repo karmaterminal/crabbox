@@ -85,6 +85,10 @@ describe("cloud-init bootstrap", () => {
     expect(got).toContain(
       "retry apt-get install -y --no-install-recommends openssh-server ca-certificates curl git rsync jq",
     );
+    expect(got.indexOf("systemctl restart ssh")).toBeLessThan(got.indexOf("retry apt-get update"));
+    expect(got.indexOf("retry apt-get update")).toBeLessThan(
+      got.indexOf("touch /var/lib/crabbox/bootstrapped"),
+    );
     expect(got).toContain("curl --version >/dev/null");
     expect(got).toContain("test -f /var/lib/crabbox/bootstrapped");
     expect(got).toContain("test -w /work/crabbox");
@@ -94,6 +98,14 @@ describe("cloud-init bootstrap", () => {
       "timeout 30s systemctl restart ssh || timeout 30s systemctl restart ssh.socket || true",
     );
     expect(got).toContain("touch /var/lib/crabbox/bootstrapped");
+    expect(got).toContain("After=cloud-final.service");
+    expect(got).toContain("WantedBy=cloud-final.service");
+    expect(got.indexOf("ExecStart=/usr/local/bin/crabbox-ready")).toBeLessThan(
+      got.indexOf("ExecStart=/usr/bin/touch /run/crabbox/workspace-ready"),
+    );
+    expect(got).toContain("ExecStart=/usr/bin/touch /run/crabbox/workspace-ready");
+    expect(got).toContain("systemctl enable crabbox-workspace-ready.service");
+    expect(got).toContain("systemctl start --no-block crabbox-workspace-ready.service");
     expect(got).not.toContain("\npackages:\n");
     expect(got).not.toContain("systemctl enable --now ssh");
     expect(got).not.toContain("go version");

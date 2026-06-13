@@ -65,6 +65,22 @@ write_files:
 ${portLines}
       PasswordAuthentication no
 ${sshHostKeyFiles}
+  - path: /etc/systemd/system/crabbox-workspace-ready.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Crabbox workspace per-boot readiness
+      After=cloud-final.service
+      ConditionPathExists=/var/lib/crabbox/bootstrapped
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/crabbox-ready
+      ExecStart=/usr/bin/install -d /run/crabbox
+      ExecStart=/usr/bin/touch /run/crabbox/workspace-ready
+
+      [Install]
+      WantedBy=cloud-final.service
   - path: /usr/local/bin/crabbox-ready
     permissions: '0755'
     content: |
@@ -82,6 +98,7 @@ runcmd:
   - |
     bash -euxo pipefail <<'BOOT'
     export DEBIAN_FRONTEND=noninteractive
+    timeout 30s systemctl restart ssh || timeout 30s systemctl restart ssh.socket || true
     cat >/etc/apt/apt.conf.d/80-crabbox-retries <<'APT'
     Acquire::Retries "8";
     Acquire::http::Timeout "30";
@@ -105,6 +122,9 @@ runcmd:
     systemctl enable ssh || true
     timeout 30s systemctl restart ssh || timeout 30s systemctl restart ssh.socket || true
 ${bootstrap}
+    systemctl daemon-reload
+    systemctl enable crabbox-workspace-ready.service
+    systemctl start --no-block crabbox-workspace-ready.service
     touch /var/lib/crabbox/bootstrapped
     crabbox-ready
     BOOT

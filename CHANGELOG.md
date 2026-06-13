@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- Fixed Crabfleet workspaces to use any configured brokered provider and route the OpenClaw deployment through its verified AWS backend with isolated, ephemeral key-only SSH access and pinned terminal attachment.
+- Fixed Crabfleet workspaces to use any configured brokered provider and route the OpenClaw deployment through its verified AWS backend with isolated, ephemeral key-only SSH access and readiness-gated, pinned terminal attachment.
 
 ## 0.30.0 - 2026-06-13
 

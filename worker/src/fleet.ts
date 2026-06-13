@@ -9034,6 +9034,11 @@ function workspaceTerminalBootstrapCommand(workspace: WorkspaceRecord, lease: Le
   const runner = `bash -lc ${shellQuote(setup.join("\n"))}`;
   const session = `crabbox-workspace-${workspace.id}`.slice(0, 80);
   return [
+    "if systemctl cat crabbox-workspace-ready.service >/dev/null 2>&1; then",
+    "  timeout 20m bash -c 'until test -f /run/crabbox/workspace-ready; do sleep 2; done' || exit $?",
+    "else",
+    "  timeout 2m bash -c 'until crabbox-ready >/dev/null 2>&1; do sleep 2; done' || exit $?",
+    "fi",
     "if command -v tmux >/dev/null 2>&1; then",
     `  exec tmux new-session -A -s ${shellQuote(session)} ${shellQuote(runner)}`,
     "else",

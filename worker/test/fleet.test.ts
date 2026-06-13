@@ -1436,6 +1436,14 @@ describe("fleet lease identity and idle", () => {
 
     expect(bootstrap).toContain("/workspaces");
     expect(bootstrap).toContain("crabbox-workspace-");
+    expect(bootstrap).toContain("systemctl cat crabbox-workspace-ready.service");
+    expect(bootstrap).toContain("/run/crabbox/workspace-ready");
+    expect(bootstrap).toContain("until crabbox-ready");
+    expect(bootstrap).toContain("timeout 20m");
+    expect(bootstrap.match(/\|\| exit \$\?/gu)).toHaveLength(2);
+    expect(bootstrap.indexOf("/run/crabbox/workspace-ready")).toBeLessThan(
+      bootstrap.indexOf("command -v tmux"),
+    );
     expect(bootstrap).toContain("rev-parse --verify 'HEAD^{commit}'");
     expect(bootstrap).toContain(".clone.XXXXXX");
     expect(bootstrap).toContain("if ! git clone");
