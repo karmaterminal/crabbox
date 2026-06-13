@@ -2516,6 +2516,7 @@ export class FleetCoordinator {
                   readyTimeout: 10_000,
                   keepaliveInterval: 15_000,
                   keepaliveCountMax: 3,
+                  algorithms: { serverHostKey: ["ssh-ed25519"] },
                   hostHash: "sha256",
                   hostVerifier: (fingerprint: string) => expectedHostKey === fingerprint,
                 });

@@ -23,6 +23,7 @@ declare module "ssh2" {
       readyTimeout: number;
       keepaliveInterval: number;
       keepaliveCountMax: number;
+      algorithms: { serverHostKey: ["ssh-ed25519"] };
       hostHash: "sha256";
       hostVerifier: (fingerprint: string) => boolean;
     }): this;

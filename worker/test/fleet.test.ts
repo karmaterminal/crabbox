@@ -1409,6 +1409,7 @@ describe("fleet lease identity and idle", () => {
     expect(terminal).toContain("workspaceTerminalAcknowledgement(value)");
     expect(terminal).toContain("bytes > unacknowledgedOutputBytes");
     expect(terminal).toContain("workspaceTerminalSocketBufferedBytes(socket)");
+    expect(terminal).toContain('algorithms: { serverHostKey: ["ssh-ed25519"] }');
     expect(source).toContain("value.length > workspaceTerminalMaxBufferedBytes");
   });
 
