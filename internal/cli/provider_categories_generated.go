@@ -38,6 +38,7 @@ var benchmarkProviderCategories = map[string]string{
 	"mxc":                        "local-sandbox",
 	"namespace-devbox":           "direct-cloud",
 	"namespace-instance":         "direct-cloud",
+	"nebius":                     "direct-cloud",
 	"nvidia-brev":                "gpu-cloud",
 	"opencomputer":               "delegated-sandbox",
 	"opensandbox":                "delegated-sandbox",
