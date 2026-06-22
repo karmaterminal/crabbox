@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AzureClient,
@@ -28,6 +28,8 @@ const baseEnv: Env = {
   AZURE_CLIENT_SECRET: "secret",
   AZURE_SUBSCRIPTION_ID: "sub",
 };
+
+afterEach(() => vi.useRealTimers());
 
 function isAzureLoginURL(value: string): boolean {
   return new URL(value).hostname === "login.microsoftonline.com";
@@ -189,6 +191,9 @@ describe("azure provider", () => {
       true,
     );
     expect(isRetryableDeleteError("AnotherOperationInProgress")).toBe(true);
+    expect(isRetryableDeleteError("DiskInUse while detaching")).toBe(true);
+    expect(isRetryableDeleteError("DiskIsAttachedToVM")).toBe(true);
+    expect(isRetryableDeleteError("CannotDeleteDisk until detach completes")).toBe(true);
     expect(isRetryableDeleteError("plain validation error")).toBe(false);
   });
 
@@ -472,16 +477,41 @@ describe("azure provider", () => {
   });
 
   it("creates Windows VMs with Windows OS profile and bootstrap extension", async () => {
+    vi.useFakeTimers();
     const client = new AzureClient(baseEnv);
     const bodies: unknown[] = [];
+    let extensionStateReads = 0;
     const fakeFetch = ((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url = typeof input === "string" ? input : input.toString();
       if (isAzureLoginURL(url)) {
         return Promise.resolve(
-          new Response(JSON.stringify({ access_token: "tkn", expires_in: 3600 }), { status: 200 }),
+          new Response(JSON.stringify({ access_token: "tkn", expires_in: 3600 }), {
+            status: 200,
+          }),
         );
       }
       if (init?.body) bodies.push(JSON.parse(String(init.body)));
+      if (url === "https://management.azure.com/windows-extension-op") {
+        return Promise.resolve(new Response(JSON.stringify({ status: "InProgress" })));
+      }
+      if (url.includes("/extensions/crabbox-bootstrap") && init?.method === "PUT") {
+        return Promise.resolve(
+          new Response(null, {
+            status: 202,
+            headers: {
+              "azure-asyncoperation": "https://management.azure.com/windows-extension-op",
+            },
+          }),
+        );
+      }
+      if (url.includes("/extensions/crabbox-bootstrap") && init?.method !== "PUT") {
+        extensionStateReads += 1;
+        return Promise.resolve(
+          new Response(JSON.stringify({ properties: { provisioningState: "Succeeded" } }), {
+            status: 200,
+          }),
+        );
+      }
       if (url.includes("/resourceGroups/crabbox-leases?")) {
         return Promise.resolve(
           new Response(JSON.stringify({ tags: { managed_by: "crabbox" } }), { status: 200 }),
@@ -495,7 +525,10 @@ describe("azure provider", () => {
       if (url.includes("/networkSecurityGroups/crabbox-nsg?") && init?.method === "GET") {
         return Promise.resolve(
           new Response(
-            JSON.stringify({ tags: { managed_by: "crabbox" }, properties: { securityRules: [] } }),
+            JSON.stringify({
+              tags: { managed_by: "crabbox" },
+              properties: { securityRules: [] },
+            }),
             { status: 200 },
           ),
         );
@@ -601,7 +634,15 @@ describe("azure provider", () => {
       keep: false,
       sshPublicKey: "ssh-rsa test",
     };
-    await client.createServerWithFallback(config, "cbx_123456789abc", "blue-lobster", "owner");
+    const create = client.createServerWithFallback(
+      config,
+      "cbx_123456789abc",
+      "blue-lobster",
+      "owner",
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await create;
 
     const vmBody = bodies.find(
       (body): body is { properties: { osProfile: Record<string, unknown> } } =>
@@ -627,6 +668,7 @@ describe("azure provider", () => {
       JSON.stringify(body).includes("CustomScriptExtension"),
     );
     expect(JSON.stringify(extensionBody)).toContain("AzureData\\\\CustomData.bin");
+    expect(extensionStateReads).toBeGreaterThanOrEqual(1);
   });
 
   it("uses managed StandardSSD_LRS OS disks when azureOSDisk is managed", async () => {
