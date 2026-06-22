@@ -496,6 +496,25 @@ func (a App) hydrateActionsLocally(ctx context.Context, cfg Config, repo Repo, t
 	if err := runSSHInput(ctx, target, remoteInstallLocalActionsHydrateScript(leaseID), strings.NewReader(script), stdout, stderr); err != nil {
 		return actionsHydrationState{}, exit(7, "install local Actions hydration script on %s: %v", target.Host, err)
 	}
+	if isWindowsWSL2Target(target) {
+		if err := runSSHInput(ctx, target, remoteRunLocalActionsHydrateScriptForeground(leaseID, waitTimeout), nil, stdout, stderr); err != nil {
+			return actionsHydrationState{}, exit(7, "run local Actions hydration on %s: %v", target.Host, err)
+		}
+		state, err := readActionsHydrationState(ctx, target, leaseID)
+		if err != nil || state.Workspace == "" {
+			if err != nil {
+				return actionsHydrationState{}, exit(7, "read local Actions hydration marker for %s: %v", leaseID, err)
+			}
+			return actionsHydrationState{}, exit(7, "local Actions hydration completed without marker for %s", leaseID)
+		}
+		if expectedJob != "" && state.Job != "" && state.Job != expectedJob {
+			return actionsHydrationState{}, exit(5, "local Actions hydration marker for %s came from job %q, expected %q", leaseID, state.Job, expectedJob)
+		}
+		if err := ensureLocalActionsRunEnv(ctx, target, leaseID, state); err != nil {
+			return actionsHydrationState{}, err
+		}
+		return state, nil
+	}
 	pid, err := runSSHOutput(ctx, target, remoteStartLocalActionsHydrateScript(leaseID))
 	if err != nil {
 		return actionsHydrationState{}, exit(7, "start local Actions hydration on %s: %v", target.Host, err)
@@ -724,7 +743,7 @@ func localActionsHydrateScript(cfg Config, repo Repo, workflow localHydrateWorkf
 	if err != nil {
 		return "", err
 	}
-	runnerRoot := path.Join("/tmp", localActionsRunnerRootName(leaseID))
+	runnerRoot := path.Join(path.Dir(workdir), ".crabbox-local-actions", localActionsRunnerRootName(leaseID))
 	runnerTemp := path.Join(runnerRoot, "tmp")
 	runnerToolCache := path.Join(runnerRoot, "tools")
 	githubRef := actionsFullRef(cfg, repo)
@@ -2276,6 +2295,26 @@ func remoteStartLocalActionsHydrateScript(leaseID string) string {
 	exitPath := "\"$HOME\"/" + shellQuote(actionsHydrationLocalExitPath(leaseID))
 	wrapper := `bash "$1" >"$2" 2>&1; printf '%s\n' "$?" >"$3"`
 	return "rm -f " + exitPath + " " + logPath + " && nohup bash -c " + shellQuote(wrapper) + " sh " + script + " " + logPath + " " + exitPath + " >/dev/null 2>&1 < /dev/null & printf '%s\\n' \"$!\""
+}
+
+func remoteRunLocalActionsHydrateScriptForeground(leaseID string, timeout time.Duration) string {
+	if timeout <= 0 {
+		timeout = 20 * time.Minute
+	}
+	seconds := int((timeout + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	script := "\"$HOME\"/" + shellQuote(actionsHydrationLocalScriptPath(leaseID))
+	logPath := "\"$HOME\"/" + shellQuote(actionsHydrationLocalLogPath(leaseID))
+	exitPath := "\"$HOME\"/" + shellQuote(actionsHydrationLocalExitPath(leaseID))
+	wrapper := `set -o pipefail
+rm -f "$3" "$4"
+timeout --signal=TERM --kill-after=10s "$1" bash "$2" 2>&1 | tee "$3"
+code=${PIPESTATUS[0]}
+printf '%s\n' "$code" >"$4"
+exit "$code"`
+	return "bash -c " + shellQuote(wrapper) + " sh " + shellQuote(fmt.Sprintf("%ds", seconds)) + " " + script + " " + logPath + " " + exitPath
 }
 
 func remoteLocalActionsHydrateStatus(leaseID, pid string) string {

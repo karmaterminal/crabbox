@@ -4,9 +4,11 @@ import (
 	"encoding/base64"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -399,11 +401,12 @@ func TestLocalActionsHydrateScriptTranslatesCoreSteps(t *testing.T) {
 			{Name: "Skipped", If: "${{ false }}", Run: "exit 99"},
 		},
 	}
-	got, err := localActionsHydrateScript(cfg, repo, workflow, job, "hydrate", "cbx_123", actionsHydrateFields("cbx_123", "crabbox-cbx-123", "hydrate", 0, nil), "/work/cbx_123/my-app")
+	workdir := "/work/cbx_123/my-app"
+	got, err := localActionsHydrateScript(cfg, repo, workflow, job, "hydrate", "cbx_123", actionsHydrateFields("cbx_123", "crabbox-cbx-123", "hydrate", 0, nil), workdir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runnerRoot := "/tmp/" + localActionsRunnerRootName("cbx_123")
+	runnerRoot := path.Join(path.Dir(workdir), ".crabbox-local-actions", localActionsRunnerRootName("cbx_123"))
 	for _, want := range []string{
 		"export GITHUB_ACTIONS='true'",
 		"export GITHUB_JOB='hydrate'",
@@ -848,11 +851,12 @@ func TestLocalActionsHydrateScriptAllowsSetupNodeCheckLatest(t *testing.T) {
 
 func TestLocalActionsHydrateScriptKeepsToolCacheOffWorkRoot(t *testing.T) {
 	job := localHydrateJob{Steps: []localHydrateStep{{Uses: "actions/setup-node@v4", With: map[string]string{"node-version": "22"}}}}
-	got, err := localActionsHydrateScript(defaultConfig(), Repo{Name: "repo"}, localHydrateWorkflow{}, job, "hydrate", "cbx_123", nil, "/work/cbx_123/repo")
+	workdir := "/work/cbx_123/repo"
+	got, err := localActionsHydrateScript(defaultConfig(), Repo{Name: "repo"}, localHydrateWorkflow{}, job, "hydrate", "cbx_123", nil, workdir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runnerRoot := "/tmp/" + localActionsRunnerRootName("cbx_123")
+	runnerRoot := path.Join(path.Dir(workdir), ".crabbox-local-actions", localActionsRunnerRootName("cbx_123"))
 	for _, want := range []string{
 		"rm -rf " + shellQuote(runnerRoot),
 		"chmod 700 " + shellQuote(runnerRoot),
@@ -865,8 +869,10 @@ func TestLocalActionsHydrateScriptKeepsToolCacheOffWorkRoot(t *testing.T) {
 		}
 	}
 	for _, notWant := range []string{
-		"RUNNER_TEMP='/work/cbx_123/.crabbox/tmp/cbx_123'",
-		"RUNNER_TOOL_CACHE='/work/cbx_123/.crabbox/tools'",
+		"RUNNER_TEMP='/tmp/",
+		"RUNNER_TOOL_CACHE='/tmp/",
+		"RUNNER_TEMP='/work/cbx_123/repo/",
+		"RUNNER_TOOL_CACHE='/work/cbx_123/repo/",
 	} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("local hydrate script should not place runner cache under work root %q:\n%s", notWant, got)
@@ -876,11 +882,12 @@ func TestLocalActionsHydrateScriptKeepsToolCacheOffWorkRoot(t *testing.T) {
 
 func TestLocalActionsHydrateScriptUsesSafeRunnerRootName(t *testing.T) {
 	job := localHydrateJob{Steps: []localHydrateStep{{Run: "echo ok"}}}
-	got, err := localActionsHydrateScript(defaultConfig(), Repo{Name: "repo"}, localHydrateWorkflow{}, job, "hydrate", "../cbx_123/../../bad", nil, "/work/cbx_123/repo")
+	workdir := "/work/cbx_123/repo"
+	got, err := localActionsHydrateScript(defaultConfig(), Repo{Name: "repo"}, localHydrateWorkflow{}, job, "hydrate", "../cbx_123/../../bad", nil, workdir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runnerRoot := "/tmp/" + localActionsRunnerRootName("../cbx_123/../../bad")
+	runnerRoot := path.Join(path.Dir(workdir), ".crabbox-local-actions", localActionsRunnerRootName("../cbx_123/../../bad"))
 	for _, want := range []string{
 		"rm -rf " + shellQuote(runnerRoot),
 		"mkdir -p " + shellQuote(runnerRoot),
@@ -891,8 +898,7 @@ func TestLocalActionsHydrateScriptUsesSafeRunnerRootName(t *testing.T) {
 			t.Fatalf("local hydrate script missing %q in:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "rm -rf '/tmp/crabbox-local-actions/..") ||
-		strings.Contains(got, "RUNNER_TOOL_CACHE='/tmp/crabbox-local-actions/..") {
+	if strings.Contains(got, ".crabbox-local-actions/..") {
 		t.Fatalf("local hydrate script used raw lease id for runner root:\n%s", got)
 	}
 }
@@ -1186,15 +1192,32 @@ func TestLocalActionsRemoteCommandsQuoteLeasePaths(t *testing.T) {
 		got  string
 		want string
 	}{
-		"install": {remoteInstallLocalActionsHydrateScript(leaseID), "\"$HOME\"/" + shellQuote(actionsHydrationLocalScriptPath(leaseID))},
-		"start":   {remoteStartLocalActionsHydrateScript(leaseID), "\"$HOME\"/" + shellQuote(actionsHydrationLocalLogPath(leaseID))},
-		"status":  {remoteLocalActionsHydrateStatus(leaseID, "123"), "\"$HOME\"/" + shellQuote(actionsHydrationLocalExitPath(leaseID))},
+		"install":    {remoteInstallLocalActionsHydrateScript(leaseID), "\"$HOME\"/" + shellQuote(actionsHydrationLocalScriptPath(leaseID))},
+		"start":      {remoteStartLocalActionsHydrateScript(leaseID), "\"$HOME\"/" + shellQuote(actionsHydrationLocalLogPath(leaseID))},
+		"foreground": {remoteRunLocalActionsHydrateScriptForeground(leaseID, time.Minute), "\"$HOME\"/" + shellQuote(actionsHydrationLocalLogPath(leaseID))},
+		"status":     {remoteLocalActionsHydrateStatus(leaseID, "123"), "\"$HOME\"/" + shellQuote(actionsHydrationLocalExitPath(leaseID))},
 	} {
 		if strings.Contains(tc.got, "$HOME/.crabbox") {
 			t.Fatalf("%s command should quote HOME-relative paths:\n%s", name, tc.got)
 		}
 		if !strings.Contains(tc.got, tc.want) {
 			t.Fatalf("%s command missing quoted path %q:\n%s", name, tc.want, tc.got)
+		}
+	}
+}
+
+func TestRemoteRunLocalActionsHydrateScriptForegroundUsesTimeoutAndLog(t *testing.T) {
+	got := remoteRunLocalActionsHydrateScriptForeground("cbx_123", 90*time.Second)
+	for _, want := range []string{
+		"timeout --signal=TERM --kill-after=10s \"$1\"",
+		"'90s'",
+		"tee",
+		"PIPESTATUS",
+		actionsHydrationLocalLogPath("cbx_123"),
+		actionsHydrationLocalExitPath("cbx_123"),
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("foreground hydrate command missing %q:\n%s", want, got)
 		}
 	}
 }
