@@ -267,6 +267,87 @@ func TestCoordinatorCreateLeaseTimesOutWithDiagnostics(t *testing.T) {
 	}
 }
 
+func TestCoordinatorCreateLeaseRecoversLeaseCommittedAfterCreateError(t *testing.T) {
+	oldRecoveryTimeout := coordinatorCreateLeaseRecoveryTimeout
+	oldRecoveryInterval := coordinatorCreateLeaseRecoveryInterval
+	coordinatorCreateLeaseRecoveryTimeout = time.Second
+	coordinatorCreateLeaseRecoveryInterval = 10 * time.Millisecond
+	defer func() {
+		coordinatorCreateLeaseRecoveryTimeout = oldRecoveryTimeout
+		coordinatorCreateLeaseRecoveryInterval = oldRecoveryInterval
+	}()
+
+	var createdLeaseID string
+	gets := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/leases":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			createdLeaseID, _ = body["leaseID"].(string)
+			http.Error(w, "error code: 1101", http.StatusInternalServerError)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/leases/"):
+			gets++
+			if createdLeaseID == "" || !strings.HasSuffix(r.URL.Path, createdLeaseID) {
+				t.Fatalf("get path=%s created=%s", r.URL.Path, createdLeaseID)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"lease": CoordinatorLease{
+				ID:                 createdLeaseID,
+				Slug:               "jade-crab",
+				Provider:           "azure",
+				TargetOS:           targetWindows,
+				WindowsMode:        windowsModeNormal,
+				CloudID:            "crabbox-jade-crab",
+				Host:               "203.0.113.44",
+				SSHUser:            "crabbox",
+				SSHPort:            "22",
+				WorkRoot:           defaultWindowsWorkRoot,
+				State:              "active",
+				ServerType:         "Standard_D2ads_v6",
+				IdleTimeoutSeconds: 1800,
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := baseConfig()
+	cfg.Provider = "azure"
+	cfg.TargetOS = targetWindows
+	cfg.WindowsMode = windowsModeNormal
+	cfg.Coordinator = server.URL
+	cfg.CoordToken = "user-token"
+	coord, _, err := newCoordinatorClient(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	backend := &coordinatorLeaseBackend{cfg: cfg, coord: coord, rt: Runtime{Stderr: &stderr}}
+
+	lease, err := backend.createCoordinatorLeaseWithProgress(context.Background(), cfg, "ssh-rsa test", false, "cbx_recover", "jade-crab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lease.ID != createdLeaseID || lease.Host != "203.0.113.44" {
+		t.Fatalf("lease=%#v created=%s", lease, createdLeaseID)
+	}
+	if gets == 0 {
+		t.Fatal("expected recovery GET")
+	}
+	for _, want := range []string{
+		"uncertain result",
+		"recovered coordinator lease",
+		createdLeaseID,
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr=%q missing %q", stderr.String(), want)
+		}
+	}
+}
+
 func TestLeaseToServerTargetPreservesCoordinatorWorkRoot(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Provider = "aws"
