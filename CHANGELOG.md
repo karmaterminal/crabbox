@@ -70,6 +70,7 @@
 ### Fixed
 
 - Scoped managed AWS security groups per coordinator actor, preserved lease-declared CIDRs across heartbeats, and allowed owners to reuse their own released EC2 Mac hosts without admin-token pinning, preventing concurrent leases from revoking access and avoiding stranded presentation capacity.
+- Provisioned complete VNC, noVNC, and XFCE services when Linux Parallels leases request desktop capability, including upgrades from stale core-only readiness markers.
 - Forced managed AWS macOS leases onto Apple's socket-activated Remote Login port 22, preventing inherited SSH-port settings from producing unreachable lease metadata and stalled WebVNC bridges.
 - Restored incomplete Linux Node.js toolchains through NodeSource when `npm` or Corepack is missing, preventing source installers from failing on otherwise valid images.
 - Rejected AWS developer-tool images older than Node.js 24 during candidate smoke validation.
