@@ -3330,14 +3330,19 @@ describe("fleet lease identity and idle", () => {
     const ready = await fleet.fetch(request("GET", `/v1/workspaces/${body.id}`, { headers }));
     const readyBody = (await ready.json()) as {
       attachUrl: string;
-      capabilities: { terminal: boolean };
+      capabilities: {
+        terminal: boolean;
+        desktop: boolean;
+        vnc: boolean;
+        nativeVnc: boolean;
+      };
       providerResourceId: string;
       status: string;
     };
     expect(readyBody).toMatchObject({
       providerResourceId: created.providerResourceId,
       status: "ready",
-      capabilities: { terminal: true },
+      capabilities: { terminal: true, desktop: false, vnc: false, nativeVnc: true },
     });
     const terminalURL = new URL(readyBody.attachUrl);
     expect(terminalURL.origin).toBe("wss://crabbox.example.com");
@@ -3400,6 +3405,33 @@ describe("fleet lease identity and idle", () => {
     await expect(duplicate.json()).resolves.toMatchObject({
       providerResourceId: created.providerResourceId,
       status: "ready",
+    });
+    expect(
+      storage.value<{ desktopCapabilityVersion?: number }>(
+        "workspace:example-org:alice%40example.com:fleet-is-101",
+      )?.desktopCapabilityVersion,
+    ).toBe(1);
+
+    const legacyID = "fleet-legacy-desktop";
+    storage.seed(`workspace:example-org:alice%40example.com:${legacyID}`, {
+      ...storage.value<Record<string, unknown>>(
+        "workspace:example-org:alice%40example.com:fleet-is-101",
+      ),
+      id: legacyID,
+      leaseID: "cbx_legacydesktop",
+      desktop: false,
+      desktopCapabilityVersion: undefined,
+    });
+    const legacyDuplicate = await fleet.fetch(
+      request("POST", "/v1/workspaces", {
+        headers,
+        body: { ...body, id: legacyID },
+      }),
+    );
+    expect(legacyDuplicate.status).toBe(202);
+    await expect(legacyDuplicate.json()).resolves.toMatchObject({
+      providerResourceId: "cbx_legacydesktop",
+      capabilities: { desktop: false, vnc: false, nativeVnc: false },
     });
 
     const otherOwner = await fleet.fetch(

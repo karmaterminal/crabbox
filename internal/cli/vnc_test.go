@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -9,6 +11,46 @@ import (
 	"testing"
 	"time"
 )
+
+func TestVNCNativeHandoffJSONContract(t *testing.T) {
+	var output bytes.Buffer
+	handoff := vncNativeHandoff{
+		Schema:   vncNativeHandoffSchema,
+		Host:     vncLoopbackHost,
+		Port:     5907,
+		Username: "operator",
+		Password: "private value",
+	}
+	if err := json.NewEncoder(&output).Encode(handoff); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(output.String(), "\n") != 1 {
+		t.Fatalf("handoff must be exactly one JSON line: %q", output.String())
+	}
+	var decoded vncNativeHandoff
+	if err := json.Unmarshal(output.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded != handoff {
+		t.Fatalf("decoded handoff=%#v want=%#v", decoded, handoff)
+	}
+}
+
+func TestVNCNativeHandoffRejectsHostManagedEndpoints(t *testing.T) {
+	for _, endpoint := range []vncEndpoint{
+		{Host: "127.0.0.1", Port: managedVNCPort},
+		{Direct: true, Host: "192.0.2.10", Port: managedVNCPort},
+	} {
+		if err := validateNativeVNCHandoffEndpoint(endpoint); err == nil || !strings.Contains(err.Error(), "Crabbox-managed") {
+			t.Fatalf("endpoint=%#v error=%v, want Crabbox-managed rejection", endpoint, err)
+		}
+	}
+	if err := validateNativeVNCHandoffEndpoint(vncEndpoint{
+		Host: "127.0.0.1", Port: managedVNCPort, Managed: true,
+	}); err != nil {
+		t.Fatalf("managed loopback endpoint rejected: %v", err)
+	}
+}
 
 func TestVNCTunnelCommandQuotesKeyPath(t *testing.T) {
 	got := vncTunnelCommand(SSHTarget{
