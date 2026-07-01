@@ -71,6 +71,8 @@
 
 ### Fixed
 
+- Rejected WebVNC, Code, and egress bridge tickets in URL query strings by default while retaining an explicit temporary legacy opt-in. Thanks @TurboTheTurtle.
+- Required manage access for post-create run lease attribution, preventing use-share users from retagging unrelated runs into another owner's audit history. Thanks @TurboTheTurtle.
 - Derived omitted coordinator lease provider keys from the finalized lease ID instead of a shared fallback, preventing cross-lease SSH key reuse. Thanks @TurboTheTurtle.
 - Rejected portal OAuth return targets containing HTTP header control characters, preventing malformed redirect responses from breaking login completion. Thanks @TurboTheTurtle.
 - Prevented Cloudflare Sandbox bridge credentials and request bodies from following redirects outside the configured bridge origin while preserving same-origin redirects. Thanks @coygeek.
