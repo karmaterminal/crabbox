@@ -48,6 +48,7 @@ type checkpointRecord struct {
 	Slug           string `json:"slug,omitempty"`
 	TargetOS       string `json:"targetOS,omitempty"`
 	WindowsMode    string `json:"windowsMode,omitempty"`
+	Desktop        bool   `json:"desktop,omitempty"`
 	ServerType     string `json:"serverType,omitempty"`
 	HostID         string `json:"hostId,omitempty"`
 	Workdir        string `json:"workdir,omitempty"`
@@ -795,6 +796,10 @@ func (a App) checkpointForkRecordOnce(ctx context.Context, cfg Config, backend B
 		}
 	}
 	if isNativeCheckpointKind(record.Kind) {
+		if record.TargetOS == targetWindows {
+			fmt.Fprintf(a.Stdout, "checkpoint forked id=%s lease=%s slug=%s image=%s workdir=-\n", record.ID, leaseID, blank(serverSlug(server), "-"), nativeCheckpointResourceID(record))
+			return nil
+		}
 		workdir := nativeCheckpointForkWorkdir(cfg, leaseID, repo.Name, workdirOverride)
 		if err := validateCheckpointForkWorkdirs(ctx, backend, LeaseTarget{Server: server, SSH: target, LeaseID: leaseID, Coordinator: lease.Coordinator}, record.Workdir, workdir); err != nil {
 			a.releaseBackendLeaseBestEffort(ctx, sshBackend, cfg, LeaseTarget{Server: server, SSH: target, LeaseID: leaseID, Coordinator: lease.Coordinator})
@@ -1063,6 +1068,16 @@ func deleteCheckpoint(ctx context.Context, store checkpointStore, id string, loc
 			}
 			return store.Delete(id)
 		}
+		if cfg, ok := directAzureCheckpointConfig(record); ok {
+			client, err := NewAzureClient(ctx, cfg)
+			if err != nil {
+				return err
+			}
+			if err := client.DeleteOSDiskSnapshot(ctx, providerID); err != nil {
+				return err
+			}
+			return store.Delete(id)
+		}
 		coord, err := configuredAdminCoordinator()
 		if err != nil {
 			return err
@@ -1223,6 +1238,9 @@ func (a App) verifyCheckpointRecord(ctx context.Context, store checkpointStore, 
 		if cfg, ok := directAWSCheckpointConfig(record); ok {
 			return verifyDirectAWSCheckpoint(ctx, audit, cfg, providerID, record.Native.AccountID), nil
 		}
+		if cfg, ok := directAzureCheckpointConfig(record); ok {
+			return verifyDirectAzureCheckpoint(ctx, audit, cfg, providerID), nil
+		}
 		if provider, ok := nativeCheckpointLifecycleProvider(Config{Provider: record.nativeProvider()}, Server{}); ok {
 			result, err := provider.VerifyNativeCheckpoint(ctx, nativeCheckpointResourceRequest(record))
 			if err != nil {
@@ -1322,6 +1340,7 @@ func newCheckpointRecord(repo Repo, cfg Config, server Server, target SSHTarget,
 		Slug:           serverSlug(server),
 		TargetOS:       firstNonBlank(target.TargetOS, cfg.TargetOS),
 		WindowsMode:    firstNonBlank(target.WindowsMode, cfg.WindowsMode),
+		Desktop:        cfg.Desktop || labelBool(server.Labels["desktop"]),
 		ServerType:     firstNonBlank(server.ServerType.Name, cfg.ServerType),
 		HostID:         firstNonBlank(server.HostID, cfg.HostID, cfg.AWSMacHostID),
 		Workdir:        workdir,
