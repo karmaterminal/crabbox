@@ -47,8 +47,10 @@ import {
 import { GCPClient } from "./gcp";
 import {
   HetznerClient,
+  HetznerProvisioningError,
   hetznerProvisioningFailureMayHaveResource,
   hetznerProvisioningFailureRetryable,
+  hetznerProvisioningResourceID,
 } from "./hetzner";
 import { bearerToken, errorMessage, json, pathParts, readJson, requestOwner } from "./http";
 import {
@@ -2277,6 +2279,25 @@ export class FleetCoordinator {
             config.provider === "hetzner" && hetznerProvisioningFailureMayHaveResource(error);
           record.provisioningFailureRetryable =
             config.provider === "hetzner" && hetznerProvisioningFailureRetryable(error);
+          const failedHetznerServerID =
+            config.provider === "hetzner" ? hetznerProvisioningResourceID(error) : undefined;
+          if (failedHetznerServerID !== undefined) {
+            record.cloudID = String(failedHetznerServerID);
+            record.serverID = failedHetznerServerID;
+            record.releaseDeletesServer = true;
+          }
+          if (
+            error instanceof HetznerProvisioningError &&
+            error.providerKeyCleanupID !== undefined
+          ) {
+            record.providerKeyCleanupPending = true;
+            record.providerKeyCleanupID = String(error.providerKeyCleanupID);
+          }
+          if (failedHetznerServerID !== undefined || record.providerKeyCleanupPending) {
+            record.cleanupRetryAt = new Date(
+              Date.parse(failedAt) + leaseCleanupRetryDelayMs,
+            ).toISOString();
+          }
           if (record.provisioningResourceMayExist || record.provisioningFailureRetryable) {
             delete record.failureError;
           } else {
@@ -2845,6 +2866,9 @@ export class FleetCoordinator {
         workspace,
         "workspace lease reservation conflicts with another lifecycle",
       );
+      return;
+    }
+    if (lease?.providerKeyCleanupPending) {
       return;
     }
     if (!lease && workspaceProvisionDeadline(workspace) <= Date.now()) {
@@ -3974,6 +3998,7 @@ export class FleetCoordinator {
         currentWorkspace.leaseID !== workspace.leaseID ||
         currentWorkspace.releaseRequestedAt ||
         !currentLease ||
+        currentLease.providerKeyCleanupPending ||
         !workspaceOwnsLease(currentWorkspace, currentLease) ||
         !(
           (currentLease.state === "provisioning" && !currentLease.provisioningRequestStartedAt) ||
@@ -10058,6 +10083,8 @@ export class FleetCoordinator {
             current.endedAt = nowISO;
             delete current.releaseDeletesServer;
             clearLeaseCleanupMetadata(current);
+            delete current.providerKeyCleanupPending;
+            delete current.providerKeyCleanupID;
             delete current.cleanupStartedAt;
             delete current.cleanupClaimExpiresAt;
             await this.putLease(current);
@@ -11538,10 +11565,11 @@ export class FleetCoordinator {
       const deleteServer = options.deleteServer && !isRegisteredLease(current);
       const shouldDelete = Boolean(
         deleteServer &&
-        current.cloudID &&
-        (leaseIsLive(current) ||
-          current.releaseDeletesServer !== undefined ||
-          current.cleanupError),
+        (current.providerKeyCleanupPending ||
+          (current.cloudID &&
+            (leaseIsLive(current) ||
+              current.releaseDeletesServer !== undefined ||
+              current.cleanupError))),
       );
       if (!shouldDelete) {
         const released = finalizedReleasedLease(current, deleteServer, options.keep);
@@ -11605,6 +11633,8 @@ export class FleetCoordinator {
         return current ?? preparation.lease;
       }
       const released = finalizedReleasedLease(current, true, options.keep);
+      delete released.providerKeyCleanupPending;
+      delete released.providerKeyCleanupID;
       await this.putLease(released);
       await this.clearWorkspaceReleaseError(released);
       await this.markAWSIngressReconcilePending(released);
@@ -12562,6 +12592,9 @@ function workspaceProvisioningNeedsRecovery(
   lease: LeaseRecord,
   now = Date.now(),
 ): boolean {
+  if (lease.providerKeyCleanupPending) {
+    return false;
+  }
   if (lease.cloudID) {
     return false;
   }
@@ -12585,6 +12618,17 @@ function workspaceNextReconcileAt(
   now = Date.now(),
 ): number | undefined {
   if (lease && !workspaceOwnsLease(workspace, lease)) return workspace.error ? undefined : now;
+  if (lease?.state === "released" && lease.releaseDeletesServer === false) {
+    return undefined;
+  }
+  if (lease?.providerKeyCleanupPending) {
+    const claimDeadline = cleanupClaimDeadline(lease);
+    if (lease.cleanupStartedAt && Number.isFinite(claimDeadline)) {
+      return claimDeadline;
+    }
+    const retryAt = Date.parse(lease.cleanupRetryAt ?? "");
+    return Number.isFinite(retryAt) && retryAt > now ? retryAt : now;
+  }
   const claimExpiresAt = Date.parse(workspace.provisionClaimExpiresAt ?? "");
   const deferredUntil = Date.parse(workspace.reconcileAfter ?? "");
   const provisioningDeadline =
@@ -14888,8 +14932,13 @@ function leaseNeedsCleanup(lease: LeaseRecord, now: number): boolean {
   if (leaseIsLive(lease) && Date.parse(lease.expiresAt) <= now) {
     return true;
   }
+  if (lease.state === "released" && lease.releaseDeletesServer === false) {
+    return false;
+  }
   return Boolean(
-    !leaseIsLive(lease) && lease.cloudID && (lease.cleanupError || lease.cleanupStartedAt),
+    !leaseIsLive(lease) &&
+    ((lease.cloudID && (lease.cleanupError || lease.cleanupStartedAt)) ||
+      lease.providerKeyCleanupPending),
   );
 }
 
@@ -14982,6 +15031,10 @@ function nextLeaseAlarmTime(lease: LeaseRecord): number {
       ? Math.min(expiresAt, deleteAlarm)
       : deleteAlarm;
   }
+  if (lease.providerKeyCleanupPending && !lease.cleanupStartedAt) {
+    const retryAt = Date.parse(lease.cleanupRetryAt ?? "");
+    return Number.isFinite(retryAt) && retryAt > now ? retryAt : now + 1;
+  }
   const claimDeadline = cleanupClaimDeadline(lease);
   if (lease.cleanupStartedAt && Number.isFinite(claimDeadline)) {
     return claimDeadline;
@@ -15062,7 +15115,11 @@ function finalizedReleasedLease(
   lease.endedAt = now;
   if (wasUnprovisionedRelease) {
     lease.releaseDeletesServer = deleteServer;
-  } else if (!deleteServer && !isRegisteredLease(lease) && lease.cloudID) {
+  } else if (
+    !deleteServer &&
+    !isRegisteredLease(lease) &&
+    (lease.cloudID || lease.providerKeyCleanupPending)
+  ) {
     lease.releaseDeletesServer = false;
   } else {
     delete lease.releaseDeletesServer;
@@ -15775,12 +15832,31 @@ export class HetznerProvider implements CloudProvider {
   }
 
   async releaseLease(lease: LeaseRecord): Promise<void> {
-    try {
-      await this.deleteServer(String(lease.serverID));
-    } catch (error) {
-      if (!providerResourceNotFound(error)) {
-        throw error;
+    let serverID = Number(lease.serverID);
+    if (
+      (!Number.isSafeInteger(serverID) || serverID <= 0) &&
+      lease.providerKeyCleanupPending &&
+      lease.provisioningResourceMayExist
+    ) {
+      const recovered = await this.client.findServerByLease(lease.id);
+      serverID = recovered?.id ?? Number.NaN;
+    }
+    if (Number.isSafeInteger(serverID) && serverID > 0) {
+      try {
+        await this.deleteServer(String(serverID));
+      } catch (error) {
+        if (!providerResourceNotFound(error)) {
+          throw error;
+        }
       }
+    }
+    if (lease.providerKeyCleanupPending) {
+      const providerKeyID = Number(lease.providerKeyCleanupID);
+      if (!Number.isSafeInteger(providerKeyID) || providerKeyID <= 0) {
+        throw new Error("invalid pending Hetzner SSH key cleanup id");
+      }
+      await this.client.deleteSSHKeyByID(providerKeyID);
+      return;
     }
     if (leaseUsesCanonicalProviderKey(lease)) {
       await this.deleteSSHKey(lease.providerKey, lease.id);

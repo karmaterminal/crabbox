@@ -3110,6 +3110,105 @@ describe("fleet lease identity and idle", () => {
 
     expect(error).toBeInstanceOf(HetznerProvisioningError);
     expect((error as HetznerProvisioningError).resourceMayExist).toBe(true);
+    expect((error as HetznerProvisioningError).providerKeyCleanupID).toBeUndefined();
+  });
+
+  it("retains a newly created lease key when the server ID is unknown", async () => {
+    const requests: Array<{ method: string; path: string }> = [];
+    const responses = [
+      jsonResponse({ ssh_keys: [] }),
+      jsonResponse({ ssh_keys: [] }),
+      jsonResponse({
+        ssh_key: {
+          id: 7,
+          name: "crabbox-cbx-abcdef123456",
+          public_key: "ssh-ed25519 rollback-test",
+          labels: { crabbox: "true", created_by: "crabbox", lease: "cbx_abcdef123456" },
+        },
+      }),
+      jsonResponse({ error: { code: "server_error" } }, 503),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        requests.push({ method: init?.method || "GET", path: url.pathname });
+        return responses.shift() ?? jsonResponse({}, 500);
+      }),
+    );
+    const client = new HetznerClient({ HETZNER_TOKEN: "test-token" } as Env);
+    const config = leaseConfig({
+      provider: "hetzner",
+      providerKey: "crabbox-cbx-abcdef123456",
+      sshPublicKey: "ssh-ed25519 rollback-test",
+    });
+
+    const error = await client
+      .createServerWithFallback(config, "cbx_abcdef123456", "rollback", "alice@example.com")
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(HetznerProvisioningError);
+    expect((error as HetznerProvisioningError).resourceMayExist).toBe(true);
+    expect((error as HetznerProvisioningError).serverID).toBeUndefined();
+    expect((error as HetznerProvisioningError).providerKeyCleanupID).toBe(7);
+    expect(requests.filter((entry) => entry.method === "DELETE")).toEqual([]);
+  });
+
+  it("retains newly created shared Hetzner workspace keys after readiness rollback", async () => {
+    const requests: Array<{ method: string; path: string }> = [];
+    const responses = [
+      jsonResponse({ ssh_keys: [] }),
+      jsonResponse({ ssh_keys: [] }),
+      jsonResponse({
+        ssh_key: {
+          id: 7,
+          name: "crabbox-workspace-test",
+          public_key: "ssh-ed25519 workspace-test",
+          labels: { crabbox: "true", created_by: "crabbox" },
+        },
+      }),
+      jsonResponse({
+        server: {
+          id: 123,
+          name: "crabbox-workspace",
+          status: "initializing",
+          server_type: { name: "cpx62" },
+          public_net: { ipv4: { ip: "" } },
+          labels: { crabbox: "true", lease: "cbx_abcdef123456" },
+        },
+      }),
+      new Response(null, { status: 204 }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        requests.push({ method: init?.method || "GET", path: url.pathname });
+        return responses.shift() ?? jsonResponse({}, 500);
+      }),
+    );
+    const client = new HetznerClient({ HETZNER_TOKEN: "test-token" } as Env);
+    vi.spyOn(client, "waitForServerIP").mockRejectedValue(
+      new Error("timed out waiting for server IP: 123"),
+    );
+    const config = leaseConfig({
+      provider: "hetzner",
+      class: "cpx62",
+      serverType: "cpx62",
+      providerKey: "crabbox-workspace-test",
+      sshPublicKey: "ssh-ed25519 workspace-test",
+    });
+
+    const error = await client
+      .createServerWithFallback(config, "cbx_abcdef123456", "workspace", "alice@example.com")
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(HetznerProvisioningError);
+    expect((error as HetznerProvisioningError).resourceMayExist).toBe(false);
+    expect((error as HetznerProvisioningError).providerKeyCleanupID).toBeUndefined();
+    expect(requests.filter((entry) => entry.method === "DELETE")).toEqual([
+      { method: "DELETE", path: "/v1/servers/123" },
+    ]);
   });
 
   it("keeps ordinary Hetzner leases IP-ready while the server is still initializing", async () => {
@@ -3150,6 +3249,415 @@ describe("fleet lease identity and idle", () => {
     ).resolves.toMatchObject({
       server: { id: 123, status: "initializing" },
     });
+  });
+
+  it("treats already-absent partial Hetzner server and SSH key cleanup as complete", async () => {
+    const requests: Array<{ method: string; path: string }> = [];
+    const responses = [
+      jsonResponse({ ssh_keys: [] }),
+      jsonResponse({ ssh_keys: [] }),
+      jsonResponse({
+        ssh_key: {
+          id: 7,
+          name: "crabbox-cbx-abcdef123456",
+          public_key: "ssh-ed25519 rollback-test",
+          labels: { crabbox: "true", created_by: "crabbox", lease: "cbx_abcdef123456" },
+        },
+      }),
+      jsonResponse({
+        server: {
+          id: 123,
+          name: "crabbox-rollback",
+          status: "initializing",
+          server_type: { name: "cpx62" },
+          public_net: { ipv4: { ip: "" } },
+          labels: { crabbox: "true", lease: "cbx_abcdef123456" },
+        },
+      }),
+      jsonResponse({ error: { code: "not_found" } }, 404),
+      jsonResponse({ error: { code: "not_found" } }, 404),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        requests.push({ method: init?.method || "GET", path: url.pathname });
+        return responses.shift() ?? jsonResponse({}, 500);
+      }),
+    );
+    const client = new HetznerClient({ HETZNER_TOKEN: "test-token" } as Env);
+    vi.spyOn(client, "waitForServerIP").mockRejectedValue(
+      new Error("timed out waiting for server IP: 123"),
+    );
+    const config = leaseConfig({
+      provider: "hetzner",
+      class: "cpx62",
+      serverType: "cpx62",
+      providerKey: "crabbox-cbx-abcdef123456",
+      sshPublicKey: "ssh-ed25519 rollback-test",
+    });
+
+    const error = await client
+      .createServerWithFallback(config, "cbx_abcdef123456", "rollback", "alice@example.com")
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(HetznerProvisioningError);
+    expect((error as HetznerProvisioningError).resourceMayExist).toBe(false);
+    expect((error as HetznerProvisioningError).providerKeyCleanupID).toBeUndefined();
+    expect(requests.filter((entry) => entry.method === "DELETE")).toEqual([
+      { method: "DELETE", path: "/v1/servers/123" },
+      { method: "DELETE", path: "/v1/ssh_keys/7" },
+    ]);
+  });
+
+  it("continues Hetzner server-type fallback after rolling back a readiness timeout", async () => {
+    const serverTypes: string[] = [];
+    const deletes: string[] = [];
+    let serverID = 122;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        const method = init?.method || "GET";
+        if (method === "GET" && url.pathname === "/v1/ssh_keys") {
+          return jsonResponse({ ssh_keys: [] });
+        }
+        if (method === "POST" && url.pathname === "/v1/ssh_keys") {
+          return jsonResponse({
+            ssh_key: {
+              id: 7,
+              name: "crabbox-cbx-abcdef123456",
+              public_key: "ssh-ed25519 rollback-test",
+              labels: { crabbox: "true", created_by: "crabbox", lease: "cbx_abcdef123456" },
+            },
+          });
+        }
+        if (method === "POST" && url.pathname === "/v1/servers") {
+          const body = JSON.parse(String(init?.body)) as { server_type: string };
+          serverTypes.push(body.server_type);
+          serverID += 1;
+          return jsonResponse({
+            server: {
+              id: serverID,
+              name: "crabbox-rollback",
+              status: "initializing",
+              server_type: { name: body.server_type },
+              public_net: { ipv4: { ip: "" } },
+              labels: { crabbox: "true", lease: "cbx_abcdef123456" },
+            },
+          });
+        }
+        if (method === "DELETE" && url.pathname.startsWith("/v1/servers/")) {
+          deletes.push(url.pathname);
+          return new Response(null, { status: 204 });
+        }
+        return jsonResponse({}, 500);
+      }),
+    );
+    const client = new HetznerClient({ HETZNER_TOKEN: "test-token" } as Env);
+    vi.spyOn(client, "waitForServerIP")
+      .mockRejectedValueOnce(new Error("timed out waiting for server IP: 123"))
+      .mockResolvedValueOnce({
+        id: 124,
+        name: "crabbox-rollback",
+        status: "running",
+        server_type: { name: "cpx62" },
+        public_net: { ipv4: { ip: "192.0.2.10" } },
+        labels: { crabbox: "true", lease: "cbx_abcdef123456" },
+      });
+    const config = leaseConfig({
+      provider: "hetzner",
+      class: "standard",
+      providerKey: "crabbox-cbx-abcdef123456",
+      sshPublicKey: "ssh-ed25519 rollback-test",
+    });
+
+    await expect(
+      client.createServerWithFallback(config, "cbx_abcdef123456", "rollback", "alice@example.com"),
+    ).resolves.toMatchObject({ server: { id: 124 }, serverType: "cpx62" });
+    expect(serverTypes).toEqual(["ccx33", "cpx62"]);
+    expect(deletes).toEqual(["/v1/servers/123"]);
+  });
+
+  it("retains the exact newly created Hetzner SSH key id when immediate cleanup fails", async () => {
+    const requests: Array<{ method: string; path: string }> = [];
+    let keyDeleteAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        const method = init?.method || "GET";
+        requests.push({ method, path: url.pathname });
+        if (method === "GET" && url.pathname === "/v1/ssh_keys") {
+          return jsonResponse({ ssh_keys: [] });
+        }
+        if (method === "POST" && url.pathname === "/v1/ssh_keys") {
+          return jsonResponse({
+            ssh_key: {
+              id: 7,
+              name: "crabbox-cbx-abcdef123456",
+              public_key: "ssh-ed25519 rollback-test",
+              labels: { crabbox: "true", created_by: "crabbox", lease: "cbx_abcdef123456" },
+            },
+          });
+        }
+        if (method === "POST" && url.pathname === "/v1/servers") {
+          return jsonResponse({
+            server: {
+              id: 123,
+              name: "crabbox-rollback",
+              status: "initializing",
+              server_type: { name: "cpx62" },
+              public_net: { ipv4: { ip: "" } },
+              labels: { crabbox: "true", lease: "cbx_abcdef123456" },
+            },
+          });
+        }
+        if (method === "DELETE" && url.pathname === "/v1/servers/123") {
+          return new Response(null, { status: 204 });
+        }
+        if (method === "DELETE" && url.pathname === "/v1/ssh_keys/7") {
+          keyDeleteAttempts += 1;
+          return keyDeleteAttempts === 1
+            ? jsonResponse({ error: { code: "server_error" } }, 503)
+            : jsonResponse({ error: { code: "not_found" } }, 404);
+        }
+        return jsonResponse({}, 500);
+      }),
+    );
+    const client = new HetznerClient({ HETZNER_TOKEN: "test-token" } as Env);
+    vi.spyOn(client, "waitForServerIP").mockRejectedValue(new Error("IP wait failed"));
+    const config = leaseConfig({
+      provider: "hetzner",
+      class: "cpx62",
+      serverType: "cpx62",
+      providerKey: "crabbox-cbx-abcdef123456",
+      sshPublicKey: "ssh-ed25519 rollback-test",
+    });
+
+    const error = await client
+      .createServerWithFallback(config, "cbx_abcdef123456", "rollback", "alice@example.com")
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(HetznerProvisioningError);
+    expect((error as HetznerProvisioningError).resourceMayExist).toBe(false);
+    expect((error as HetznerProvisioningError).providerKeyCleanupID).toBe(7);
+    await client.deleteSSHKeyByID((error as HetznerProvisioningError).providerKeyCleanupID!);
+    expect(
+      requests.filter((entry) => entry.method === "DELETE" && entry.path === "/v1/ssh_keys/7"),
+    ).toHaveLength(2);
+  });
+
+  it("retries persisted Hetzner SSH key cleanup before forgetting the failed lease", async () => {
+    const storage = new MemoryStorage();
+    const cleanupLeases: LeaseRecord[] = [];
+    let providerCreates = 0;
+    const fleet = testFleet(
+      storage,
+      {
+        hetzner: fakeProvider(
+          async () => {
+            providerCreates += 1;
+            if (providerCreates === 1) {
+              throw new HetznerProvisioningError(
+                "cleanup ssh key 7: http 503",
+                false,
+                true,
+                undefined,
+                7,
+              );
+            }
+          },
+          {
+            onReleaseLease: (lease) => {
+              cleanupLeases.push(structuredClone(lease));
+              if (cleanupLeases.length === 1) {
+                throw new Error("temporary cleanup failure");
+              }
+            },
+          },
+        ),
+      },
+      { CRABBOX_WORKSPACE_SSH_PUBLIC_KEY: "ssh-ed25519 workspace-test" },
+    );
+
+    const response = await fleet.fetch(
+      request("POST", "/v1/workspaces", {
+        headers: {
+          "x-crabbox-owner": "alice@example.com",
+          "x-crabbox-org": "example-org",
+        },
+        body: {
+          id: "fleet-is-761",
+          runtime: "crabbox",
+          ttlSeconds: 1800,
+          idleTimeoutSeconds: 300,
+          capabilities: { desktop: false },
+        },
+      }),
+    );
+    expect(response.status).toBe(202);
+
+    await fleet.alarm();
+
+    const failedLease = [...(await storage.list<LeaseRecord>({ prefix: "lease:" })).values()][0];
+    expect(failedLease).toMatchObject({
+      state: "failed",
+      provisioningResourceMayExist: false,
+      providerKeyCleanupPending: true,
+      providerKeyCleanupID: "7",
+    });
+    expect(cleanupLeases).toHaveLength(0);
+    expect(providerCreates).toBe(1);
+    expect(Date.parse(failedLease.cleanupRetryAt ?? "")).toBeGreaterThan(Date.now());
+    expect(storage.alarm()).toBe(Date.parse(failedLease.cleanupRetryAt!));
+
+    await fleet.alarm();
+
+    expect(cleanupLeases).toHaveLength(0);
+    storage.seed(`lease:${failedLease.id}`, {
+      ...failedLease,
+      cleanupRetryAt: new Date(Date.now() - 1_000).toISOString(),
+    });
+    await fleet.alarm();
+
+    expect(cleanupLeases).toHaveLength(1);
+    expect(cleanupLeases[0]).toMatchObject({
+      providerKeyCleanupPending: true,
+      providerKeyCleanupID: "7",
+    });
+    const cleanupFailedLease = storage.value<LeaseRecord>(`lease:${failedLease.id}`)!;
+    expect(cleanupFailedLease).toMatchObject({
+      providerKeyCleanupPending: true,
+      cleanupError: "temporary cleanup failure",
+    });
+    expect(storage.alarm()).toBe(Date.parse(cleanupFailedLease.cleanupRetryAt!));
+
+    await fleet.alarm();
+
+    expect(cleanupLeases).toHaveLength(1);
+    storage.seed(`lease:${failedLease.id}`, {
+      ...cleanupFailedLease,
+      cleanupRetryAt: new Date(Date.now() - 1_000).toISOString(),
+    });
+
+    await fleet.alarm();
+
+    expect(cleanupLeases).toHaveLength(2);
+    const remainingLeases = [...(await storage.list<LeaseRecord>({ prefix: "lease:" })).values()];
+    expect(remainingLeases).not.toContainEqual(
+      expect.objectContaining({ providerKeyCleanupPending: true }),
+    );
+    expect(providerCreates).toBe(1);
+  });
+
+  it("retains the SSH key and marks the resource uncertain when Hetzner rollback fails", async () => {
+    const requests: Array<{ method: string; path: string }> = [];
+    const responses = [
+      jsonResponse({ ssh_keys: [] }),
+      jsonResponse({ ssh_keys: [] }),
+      jsonResponse({
+        ssh_key: {
+          id: 7,
+          name: "crabbox-cbx-abcdef123456",
+          public_key: "ssh-ed25519 rollback-test",
+          labels: { crabbox: "true", created_by: "crabbox", lease: "cbx_abcdef123456" },
+        },
+      }),
+      jsonResponse({
+        server: {
+          id: 123,
+          name: "crabbox-rollback",
+          status: "initializing",
+          server_type: { name: "cpx62" },
+          public_net: { ipv4: { ip: "" } },
+          labels: { crabbox: "true", lease: "cbx_abcdef123456" },
+        },
+      }),
+      jsonResponse({ error: { code: "server_error" } }, 503),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        requests.push({ method: init?.method || "GET", path: url.pathname });
+        return responses.shift() ?? jsonResponse({}, 500);
+      }),
+    );
+    const client = new HetznerClient({ HETZNER_TOKEN: "test-token" } as Env);
+    vi.spyOn(client, "waitForServerIP").mockRejectedValue(new Error("IP wait failed"));
+    const config = leaseConfig({
+      provider: "hetzner",
+      providerKey: "crabbox-cbx-abcdef123456",
+      sshPublicKey: "ssh-ed25519 rollback-test",
+    });
+
+    const error = await client
+      .createServerWithFallback(config, "cbx_abcdef123456", "rollback", "alice@example.com")
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(HetznerProvisioningError);
+    expect((error as HetznerProvisioningError).resourceMayExist).toBe(true);
+    expect((error as HetznerProvisioningError).serverID).toBe(123);
+    expect((error as HetznerProvisioningError).providerKeyCleanupID).toBe(7);
+    expect(error).toHaveProperty("message", expect.stringContaining("cleanup server 123"));
+    expect(requests.filter((entry) => entry.method === "DELETE")).toEqual([
+      { method: "DELETE", path: "/v1/servers/123" },
+    ]);
+  });
+
+  it("does not delete a reused Hetzner SSH key after partial-server rollback", async () => {
+    const requests: Array<{ method: string; path: string }> = [];
+    const responses = [
+      jsonResponse({
+        ssh_keys: [
+          {
+            id: 7,
+            name: "crabbox-cbx-abcdef123456",
+            public_key: "ssh-ed25519 rollback-test",
+            labels: { crabbox: "true", created_by: "crabbox", lease: "cbx_abcdef123456" },
+          },
+        ],
+      }),
+      jsonResponse({
+        server: {
+          id: 123,
+          name: "crabbox-rollback",
+          status: "initializing",
+          server_type: { name: "cpx62" },
+          public_net: { ipv4: { ip: "" } },
+          labels: { crabbox: "true", lease: "cbx_abcdef123456" },
+        },
+      }),
+      new Response(null, { status: 204 }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        requests.push({ method: init?.method || "GET", path: url.pathname });
+        return responses.shift() ?? jsonResponse({}, 500);
+      }),
+    );
+    const client = new HetznerClient({ HETZNER_TOKEN: "test-token" } as Env);
+    vi.spyOn(client, "waitForServerIP").mockRejectedValue(new Error("IP wait failed"));
+    const config = leaseConfig({
+      provider: "hetzner",
+      class: "cpx62",
+      serverType: "cpx62",
+      providerKey: "crabbox-cbx-abcdef123456",
+      sshPublicKey: "ssh-ed25519 rollback-test",
+    });
+
+    const error = await client
+      .createServerWithFallback(config, "cbx_abcdef123456", "rollback", "alice@example.com")
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(HetznerProvisioningError);
+    expect((error as HetznerProvisioningError).resourceMayExist).toBe(false);
+    expect(requests.filter((entry) => entry.method === "DELETE")).toEqual([
+      { method: "DELETE", path: "/v1/servers/123" },
+    ]);
   });
 
   it("uses the terminating Hetzner fallback error to decide retryability", async () => {
@@ -3463,6 +3971,98 @@ describe("fleet lease identity and idle", () => {
     });
 
     await expect(provider.releaseLease(lease)).resolves.toBeUndefined();
+  });
+
+  it("deletes a persisted Hetzner server before its retained SSH key", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        requests.push(`${init?.method ?? "GET"} ${url.pathname}`);
+        return new Response(null, { status: 204 });
+      }),
+    );
+    const provider = new HetznerProvider({ HETZNER_TOKEN: "test-token" } as Env);
+    const lease = testLease({
+      provider: "hetzner",
+      serverID: 123,
+      providerKeyCleanupPending: true,
+      providerKeyCleanupID: "7",
+    });
+
+    await expect(provider.releaseLease(lease)).resolves.toBeUndefined();
+
+    expect(requests).toEqual(["DELETE /v1/servers/123", "DELETE /v1/ssh_keys/7"]);
+  });
+
+  it("recovers an unknown Hetzner server before deleting its retained SSH key", async () => {
+    const requests: string[] = [];
+    let labelSelector: string | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        requests.push(`${init?.method ?? "GET"} ${url.pathname}`);
+        if ((init?.method ?? "GET") === "GET") {
+          labelSelector = url.searchParams.get("label_selector");
+          return jsonResponse({
+            servers: [
+              {
+                id: 123,
+                name: "crabbox-rollback",
+                status: "running",
+                server_type: { name: "cx23" },
+                public_net: { ipv4: { ip: "192.0.2.1" } },
+                labels: { crabbox: "true", lease: "cbx_abcdef123456" },
+              },
+            ],
+          });
+        }
+        return new Response(null, { status: 204 });
+      }),
+    );
+    const provider = new HetznerProvider({ HETZNER_TOKEN: "test-token" } as Env);
+    const lease = testLease({
+      id: "cbx_abcdef123456",
+      provider: "hetzner",
+      serverID: 0,
+      provisioningResourceMayExist: true,
+      providerKeyCleanupPending: true,
+      providerKeyCleanupID: "7",
+    });
+
+    await expect(provider.releaseLease(lease)).resolves.toBeUndefined();
+
+    expect(labelSelector).toBe("crabbox=true,lease=cbx_abcdef123456");
+    expect(requests).toEqual([
+      "GET /v1/servers",
+      "DELETE /v1/servers/123",
+      "DELETE /v1/ssh_keys/7",
+    ]);
+  });
+
+  it("retains a Hetzner SSH key when persisted server cleanup fails", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        requests.push(`${init?.method ?? "GET"} ${url.pathname}`);
+        return jsonResponse({ error: { code: "server_error" } }, 503);
+      }),
+    );
+    const provider = new HetznerProvider({ HETZNER_TOKEN: "test-token" } as Env);
+    const lease = testLease({
+      provider: "hetzner",
+      serverID: 123,
+      providerKeyCleanupPending: true,
+      providerKeyCleanupID: "7",
+    });
+
+    await expect(provider.releaseLease(lease)).rejects.toThrow("http 503");
+
+    expect(requests).toEqual(["DELETE /v1/servers/123"]);
   });
 
   it("records a shared Hetzner key's actual name so cleanup retains it", async () => {
@@ -5925,6 +6525,296 @@ describe("fleet lease identity and idle", () => {
       state: "failed",
       region: "us-central1-b",
     });
+  });
+
+  it("backs off durable Hetzner server and SSH key cleanup after rollback failure", async () => {
+    const storage = new MemoryStorage();
+    const leaseID = "cbx_abcdef123456";
+    const cleanupLeases: LeaseRecord[] = [];
+    const fleet = testFleet(storage, {
+      hetzner: fakeProvider(
+        async () => {
+          throw new HetznerProvisioningError(
+            "IP wait failed; cleanup server 123: http 503",
+            true,
+            true,
+            123,
+            7,
+          );
+        },
+        {
+          provider: "hetzner",
+          onReleaseLease(lease) {
+            cleanupLeases.push(structuredClone(lease));
+            if (cleanupLeases.length === 1) {
+              throw new Error("temporary cleanup failure");
+            }
+          },
+        },
+      ),
+    });
+
+    const response = await fleet.fetch(
+      request("POST", "/v1/leases", {
+        body: {
+          leaseID,
+          provider: "hetzner",
+          target: "linux",
+          sshPublicKey: "ssh-ed25519 rollback-test",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    const failedLease = storage.value<LeaseRecord>(`lease:${leaseID}`)!;
+    expect(failedLease).toMatchObject({
+      state: "failed",
+      cloudID: "123",
+      serverID: 123,
+      releaseDeletesServer: true,
+      providerKeyCleanupPending: true,
+      providerKeyCleanupID: "7",
+    });
+    expect(Date.parse(failedLease.cleanupRetryAt ?? "")).toBeGreaterThan(Date.now());
+    expect(storage.alarm()).toBe(Date.parse(failedLease.cleanupRetryAt!));
+
+    await fleet.alarm();
+    expect(cleanupLeases).toHaveLength(0);
+
+    storage.seed(`lease:${leaseID}`, {
+      ...failedLease,
+      cleanupRetryAt: new Date(Date.now() - 1_000).toISOString(),
+    });
+    await fleet.alarm();
+
+    expect(cleanupLeases).toHaveLength(1);
+    expect(cleanupLeases[0]).toMatchObject({
+      serverID: 123,
+      providerKeyCleanupPending: true,
+      providerKeyCleanupID: "7",
+    });
+    const retryLease = storage.value<LeaseRecord>(`lease:${leaseID}`)!;
+    expect(retryLease).toMatchObject({
+      cleanupAttempts: 1,
+      cleanupError: "temporary cleanup failure",
+      providerKeyCleanupPending: true,
+    });
+    expect(Date.parse(retryLease.cleanupRetryAt ?? "")).toBeGreaterThan(Date.now());
+    expect(storage.alarm()).toBe(Date.parse(retryLease.cleanupRetryAt!));
+
+    await fleet.alarm();
+    expect(cleanupLeases).toHaveLength(1);
+
+    storage.seed(`lease:${leaseID}`, {
+      ...retryLease,
+      cleanupRetryAt: new Date(Date.now() - 1_000).toISOString(),
+    });
+    await fleet.alarm();
+
+    expect(cleanupLeases).toHaveLength(2);
+    const cleanedLease = storage.value<LeaseRecord>(`lease:${leaseID}`)!;
+    expect(cleanedLease.cleanupRetryAt).toBeUndefined();
+    expect(cleanedLease.providerKeyCleanupPending).toBeUndefined();
+    expect(cleanedLease.providerKeyCleanupID).toBeUndefined();
+  });
+
+  it.each([
+    { case: "server and key", cloudID: "123", serverID: 123 },
+    { case: "key only", cloudID: "", serverID: 0 },
+  ])(
+    "preserves pending Hetzner $case cleanup after a no-delete release until explicit deletion",
+    async ({ cloudID, serverID }) => {
+      const storage = new MemoryStorage();
+      const cleanupLeases: LeaseRecord[] = [];
+      const fleet = testFleet(storage, {
+        hetzner: fakeProvider(undefined, {
+          provider: "hetzner",
+          onReleaseLease(lease) {
+            cleanupLeases.push(structuredClone(lease));
+          },
+        }),
+      });
+      const lease = testLease({
+        id: "cbx_abcdef123456",
+        owner: "alice@example.com",
+        org: "example-org",
+        state: "failed",
+        cloudID,
+        serverID,
+        releaseDeletesServer: true,
+        providerKeyCleanupPending: true,
+        providerKeyCleanupID: "7",
+        cleanupAttempts: 1,
+        cleanupError: "temporary cleanup failure",
+        cleanupRetryAt: new Date(Date.now() - 1_000).toISOString(),
+      });
+      storage.seed(`lease:${lease.id}`, lease);
+      const headers = {
+        "x-crabbox-owner": lease.owner,
+        "x-crabbox-org": lease.org,
+      };
+
+      const retain = await fleet.fetch(
+        request("POST", `/v1/leases/${lease.id}/release`, {
+          headers,
+          body: { delete: false },
+        }),
+      );
+      expect(retain.status).toBe(200);
+      await expect(retain.json()).resolves.toMatchObject({
+        lease: {
+          state: "released",
+          releaseDeletesServer: false,
+          providerKeyCleanupPending: true,
+          providerKeyCleanupID: "7",
+        },
+      });
+      expect(storage.value<LeaseRecord>(`lease:${lease.id}`)?.cleanupRetryAt).toBeUndefined();
+      expect(storage.alarm()).toBeUndefined();
+
+      await fleet.alarm();
+      expect(cleanupLeases).toHaveLength(0);
+      expect(storage.alarm()).toBeUndefined();
+
+      const remove = await fleet.fetch(
+        request("POST", `/v1/leases/${lease.id}/release`, {
+          headers,
+          body: { delete: true },
+        }),
+      );
+      expect(remove.status).toBe(200);
+      expect(cleanupLeases).toHaveLength(1);
+      expect(cleanupLeases[0]).toMatchObject({
+        cloudID,
+        serverID,
+        providerKeyCleanupPending: true,
+        providerKeyCleanupID: "7",
+      });
+      expect(storage.value<LeaseRecord>(`lease:${lease.id}`)).toMatchObject({
+        state: "released",
+      });
+      expect(
+        storage.value<LeaseRecord>(`lease:${lease.id}`)?.providerKeyCleanupPending,
+      ).toBeUndefined();
+      expect(storage.value<LeaseRecord>(`lease:${lease.id}`)?.providerKeyCleanupID).toBeUndefined();
+    },
+  );
+
+  it("does not reschedule workspace alarms for retained pending key cleanup", async () => {
+    const storage = new MemoryStorage();
+    const now = new Date().toISOString();
+    const lease = testLease({
+      id: "cbx_abcdef123456",
+      workspaceID: "fleet-is-retained",
+      owner: "alice@example.com",
+      org: "example-org",
+      state: "released",
+      releaseDeletesServer: false,
+      providerKeyCleanupPending: true,
+      providerKeyCleanupID: "7",
+      releasedAt: now,
+      endedAt: now,
+      updatedAt: now,
+    });
+    storage.seed(`lease:${lease.id}`, lease);
+    storage.seed("workspace:example-org:alice%40example.com:fleet-is-retained", {
+      id: "fleet-is-retained",
+      leaseID: lease.id,
+      owner: lease.owner,
+      org: lease.org,
+      profile: lease.profile,
+      provider: lease.provider,
+      class: lease.class,
+      desktop: false,
+      ttlSeconds: lease.ttlSeconds,
+      idleTimeoutSeconds: 360,
+      createdAt: now,
+      updatedAt: now,
+      releaseRequestedAt: now,
+    });
+    const fleet = testFleet(storage);
+
+    await fleet.alarm();
+
+    expect(storage.alarm()).toBeUndefined();
+    expect(storage.value<LeaseRecord>(`lease:${lease.id}`)).toMatchObject({
+      state: "released",
+      releaseDeletesServer: false,
+      providerKeyCleanupPending: true,
+      providerKeyCleanupID: "7",
+    });
+  });
+
+  it("persists failed Hetzner workspace resources for durable rollback cleanup", async () => {
+    const storage = new MemoryStorage();
+    const cleanupLeases: LeaseRecord[] = [];
+    const fleet = testFleet(
+      storage,
+      {
+        hetzner: fakeProvider(
+          async () => {
+            throw new HetznerProvisioningError(
+              "IP wait failed; cleanup server 123: http 503",
+              true,
+              true,
+              123,
+              7,
+            );
+          },
+          {
+            provider: "hetzner",
+            onReleaseLease(lease) {
+              cleanupLeases.push(structuredClone(lease));
+            },
+          },
+        ),
+      },
+      { CRABBOX_WORKSPACE_SSH_PUBLIC_KEY: "ssh-ed25519 workspace-test" },
+    );
+    const headers = {
+      "x-crabbox-owner": "alice@example.com",
+      "x-crabbox-org": "example-org",
+    };
+    const body = {
+      id: "fleet-is-rollback",
+      runtime: "crabbox",
+      ttlSeconds: 1800,
+      idleTimeoutSeconds: 360,
+      capabilities: { desktop: false },
+    };
+    await fleet.fetch(request("POST", "/v1/workspaces", { headers, body }));
+
+    await fleet.alarm();
+
+    const failedLease = [...(await storage.list<LeaseRecord>({ prefix: "lease:" })).values()][0]!;
+    expect(failedLease).toMatchObject({
+      workspaceID: body.id,
+      state: "failed",
+      cloudID: "123",
+      serverID: 123,
+      releaseDeletesServer: true,
+      providerKeyCleanupPending: true,
+      providerKeyCleanupID: "7",
+    });
+    expect(Date.parse(failedLease.cleanupRetryAt ?? "")).toBeGreaterThan(Date.now());
+    expect(cleanupLeases).toHaveLength(0);
+
+    storage.seed(`lease:${failedLease.id}`, {
+      ...failedLease,
+      cleanupRetryAt: new Date(Date.now() - 1_000).toISOString(),
+    });
+    await fleet.alarm();
+
+    expect(cleanupLeases).toHaveLength(1);
+    expect(cleanupLeases[0]).toMatchObject({
+      cloudID: "123",
+      serverID: 123,
+      providerKeyCleanupPending: true,
+      providerKeyCleanupID: "7",
+    });
+    expect(
+      storage.value<LeaseRecord>(`lease:${failedLease.id}`)?.providerKeyCleanupPending,
+    ).toBeUndefined();
   });
 
   it("fails deterministic workspace provisioning errors without waiting for the lease TTL", async () => {
