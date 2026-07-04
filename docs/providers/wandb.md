@@ -111,17 +111,30 @@ Environment overrides:
 
 `crabbox run`:
 
-1. With `--id <sandbox-id>`, `Exec` against the existing sandbox and leave it
-   running.
+1. With `--id <sandbox-id>`, require the exact local claim created when
+   Crabbox acquired the sandbox, verify that the claim still matches the W&B
+   endpoint, entity, project, and sandbox ID, then require the provider-side
+   `crabbox` inventory tag before `Exec`.
 2. Otherwise, `Start` a sandbox with an idle keep-alive command, poll until it
-   reaches `RUNNING` (200 ms backoff, ×1.5, capped at 2 s), `Exec` the
-   command, then `Stop` it unless `--keep` is set.
+   reaches `RUNNING` (200 ms backoff, ×1.5, capped at 2 s), persist the exact
+   ownership claim, `Exec` the command, then `Stop` it unless `--keep` is set.
+   If claim persistence fails, Crabbox rolls back the acquired sandbox before
+   returning.
 
-`status` renders the sandbox state (for example `running`; a `COMPLETED`
-sandbox is reported as `stopped` so `status --wait` treats it as terminal).
-`list` paginates sandboxes tagged `crabbox`. `stop` issues a graceful stop
-(15 s timeout). Acquire and exec apply a startup timeout that is the lesser of
-five minutes and the sandbox lifetime.
+`status` and `stop` enforce the same exact claim and tagged-inventory checks
+before issuing Get or Stop. A tagged sandbox without the matching local claim,
+or a claim from another endpoint, entity, or project, fails closed. Successful
+automatic or explicit stop removes the unchanged claim; failed cleanup keeps
+it so a later retry can still route to the owned resource. If tagged inventory
+no longer contains a claimed sandbox, Crabbox probes that exact ID: a confirmed
+provider `NotFound` lets `stop` remove only the unchanged stale claim. An
+untagged but existing sandbox or any lookup error preserves the claim and fails
+closed. `status` renders
+the sandbox state (for example `running`; a
+`COMPLETED` sandbox is reported as `stopped` so `status --wait` treats it as
+terminal). `list` paginates sandboxes tagged `crabbox`. `stop` issues a
+graceful stop (15 s timeout). Acquire and exec apply a startup timeout that is
+the lesser of five minutes and the sandbox lifetime.
 
 ## Capabilities
 
@@ -146,8 +159,11 @@ five minutes and the sandbox lifetime.
   `--full-resync`, `--download`, `--artifact-glob`, and `--require-artifact`
   are rejected: W&B owns the sandbox lifecycle and there is no Crabbox
   SSH/rsync target.
+- `--reclaim` remains unsupported because the pinned W&B API has no safe way
+  to adopt a tagged external sandbox into a conflict-safe exact local claim.
 - `--keep` retains a newly acquired sandbox after the run; `--keep-on-failure`
-  retains it only when the command fails, so you can debug.
+  retains it only when the command fails, so you can debug. Both paths retain
+  the exact local claim needed by later `run --id`, `status`, and `stop` calls.
 - gRPC failures map to sysexits-aligned exit codes:
   `77` (unauthenticated / permission denied), `4` (not found), `124`
   (deadline exceeded), `69` (unavailable / resource exhausted).
@@ -168,10 +184,12 @@ CRABBOX_LIVE_REPO=/path/to/my-app \
 scripts/live-smoke.sh
 ```
 
-The shared harness exits before any W&B `doctor`, `run`, or `list` command when
-no API key is exported. With the API key and entity configured, it runs
-`doctor`, executes one no-sync command with a 60-second sandbox lifetime, and
-prints normalized W&B inventory.
+The shared harness exits before any W&B provider command when no API key is
+exported. With the API key and entity configured, it runs `doctor`, creates a
+kept sandbox with a 60-second lifetime, proves status and reuse through the
+exact claim, proves that the provider tag alone cannot authorize stop, then
+stops the sandbox and confirms no active remote inventory or local claim
+residue.
 
 For manual debugging, run the same lifecycle directly:
 

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"google.golang.org/grpc/codes"
 )
 
 const wandbStopTimeout = 15 * time.Second
@@ -47,6 +49,10 @@ func (b *wandbBackend) Run(ctx context.Context, req RunRequest) (RunResult, erro
 		return RunResult{}, err
 	}
 	defer b.closeClientAfterOperation()
+	providerScope, err := wandbProviderScope()
+	if err != nil {
+		return RunResult{}, err
+	}
 	started := b.now()
 	cfg := b.cfg
 	image := blank(strings.TrimSpace(cfg.Wandb.DefaultImage), "ubuntu:24.04")
@@ -54,6 +60,7 @@ func (b *wandbBackend) Run(ctx context.Context, req RunRequest) (RunResult, erro
 
 	sandboxID := strings.TrimSpace(req.ID)
 	acquired := false
+	var claim LeaseClaim
 	if sandboxID == "" {
 		fmt.Fprintf(b.rt.Stderr, "provisioning provider=%s image=%s max_lifetime=%ds\n", providerName, image, maxLifetime)
 		sb, err := client.Acquire(ctx, wandbAcquireRequest{
@@ -68,16 +75,31 @@ func (b *wandbBackend) Run(ctx context.Context, req RunRequest) (RunResult, erro
 		sandboxID = sb.ID
 		acquired = true
 		fmt.Fprintf(b.rt.Stderr, "provisioned sandbox=%s status=%s\n", sb.ID, sb.Status)
+		claim, err = claimWandbSandbox(sandboxID, providerScope, cfg)
+		if err != nil {
+			stopCtx, cancel := context.WithTimeout(context.Background(), wandbStopTimeout)
+			defer cancel()
+			if stopErr := client.Stop(stopCtx, sandboxID, 10, true); stopErr != nil {
+				return RunResult{}, fmt.Errorf("persist wandb sandbox %s ownership claim: %w (rollback stop also failed: %v)", sandboxID, err, stopErr)
+			}
+			return RunResult{}, fmt.Errorf("persist wandb sandbox %s ownership claim: %w", sandboxID, err)
+		}
 		if req.EnvSummary {
 			printEnvForwardingSummary(b.rt.Stderr, providerName, "forwarded", req.Options.EnvAllow, req.Env)
 		}
-	} else if len(req.Env) > 0 && !wandbExistingIDEnvIsImplicitDefault(req) {
-		// CoreWeave Sandboxes apply environment variables at Start time only;
-		// the v1beta2 Exec RPC has no env field, so we can't honour
-		// selected env on an already-running sandbox. The only exception is
-		// Crabbox's built-in implicit CI/NODE_OPTIONS allowlist, which older
-		// configs may select without the user asking for env forwarding.
-		return RunResult{}, exit(2, "provider=%s cannot forward env vars to an existing sandbox (--id); rerun without --id or omit --allow-env", providerName)
+	} else {
+		if len(req.Env) > 0 && !wandbExistingIDEnvIsImplicitDefault(req) {
+			// CoreWeave Sandboxes apply environment variables at Start time only;
+			// the v1beta2 Exec RPC has no env field, so we can't honour
+			// selected env on an already-running sandbox. The only exception is
+			// Crabbox's built-in implicit CI/NODE_OPTIONS allowlist, which older
+			// configs may select without the user asking for env forwarding.
+			return RunResult{}, exit(2, "provider=%s cannot forward env vars to an existing sandbox (--id); rerun without --id or omit --allow-env", providerName)
+		}
+		claim, sandboxID, err = requireWandbOwnership(ctx, client, sandboxID, providerScope)
+		if err != nil {
+			return RunResult{}, err
+		}
 	}
 
 	// Stop semantics match the modal/e2b/islo/tensorlake sibling pattern:
@@ -91,7 +113,9 @@ func (b *wandbBackend) Run(ctx context.Context, req RunRequest) (RunResult, erro
 		}
 		stopCtx, cancel := context.WithTimeout(context.Background(), wandbStopTimeout)
 		defer cancel()
-		if err := client.Stop(stopCtx, sandboxID, 10, true); err != nil {
+		if err := removeWandbClaimAfter(claim, func() error {
+			return client.Stop(stopCtx, sandboxID, 10, true)
+		}); err != nil {
 			fmt.Fprintf(b.rt.Stderr, "warning: wandb stop failed for %s: %v\n", sandboxID, err)
 		}
 	}()
@@ -111,12 +135,18 @@ func (b *wandbBackend) Run(ctx context.Context, req RunRequest) (RunResult, erro
 	}
 
 	commandStarted := b.now()
-	exitCode, execErr := client.Exec(ctx, wandbExecRequest{
-		SandboxID: sandboxID,
-		Command:   req.Command,
-		Stdout:    b.rt.Stdout,
-		Stderr:    b.rt.Stderr,
-	})
+	var exitCode int
+	var execErr error
+	if err := verifyWandbClaim(claim); err != nil {
+		execErr = err
+	} else {
+		exitCode, execErr = client.Exec(ctx, wandbExecRequest{
+			SandboxID: sandboxID,
+			Command:   req.Command,
+			Stdout:    b.rt.Stdout,
+			Stderr:    b.rt.Stderr,
+		})
+	}
 	if execErr != nil && exitCode == 0 {
 		var ee ExitError
 		if errors.As(execErr, &ee) && ee.Code != 0 {
@@ -164,6 +194,59 @@ func wandbCleanupCommand(sandboxID string) string {
 	return fmt.Sprintf("crabbox stop --provider %s --id %s", providerName, shellQuote(sandboxID))
 }
 
+type wandbSandboxMissingError struct {
+	sandboxID string
+}
+
+func (e *wandbSandboxMissingError) Error() string {
+	return fmt.Sprintf("wandb sandbox %q is not tagged as Crabbox-managed or no longer exists", e.sandboxID)
+}
+
+func (e *wandbSandboxMissingError) As(target any) bool {
+	if exitErr, ok := target.(*ExitError); ok {
+		*exitErr = ExitError{Code: 4, Message: e.Error()}
+		return true
+	}
+	return false
+}
+
+func requireWandbOwnership(ctx context.Context, client wandbAPI, identifier, providerScope string) (LeaseClaim, string, error) {
+	claim, ok, err := resolveWandbClaim(identifier)
+	if err != nil {
+		return LeaseClaim{}, "", err
+	}
+	if !ok || claim.CloudID == "" {
+		return LeaseClaim{}, "", exit(4, "wandb sandbox %q has no matching local ownership claim", identifier)
+	}
+	if claim.ProviderScope == "" || claim.ProviderScope != providerScope {
+		return LeaseClaim{}, "", exit(4, "wandb sandbox %q ownership claim belongs to a different endpoint, entity, or project", identifier)
+	}
+	if err := requireWandbInventoryOwnership(ctx, client, claim.CloudID); err != nil {
+		return claim, claim.CloudID, err
+	}
+	return claim, claim.CloudID, nil
+}
+
+func requireWandbInventoryOwnership(ctx context.Context, client wandbAPI, sandboxID string) error {
+	sandboxes, err := client.List(ctx, []string{"crabbox"}, "all")
+	if err != nil {
+		return err
+	}
+	for _, sandbox := range sandboxes {
+		if sandbox.ID == sandboxID {
+			return nil
+		}
+	}
+	if _, err := client.Status(ctx, sandboxID); err != nil {
+		var apiErr *wandbAPIError
+		if errors.As(err, &apiErr) && apiErr.Code == codes.NotFound {
+			return &wandbSandboxMissingError{sandboxID: sandboxID}
+		}
+		return err
+	}
+	return exit(4, "wandb sandbox %q still exists but is not tagged as Crabbox-managed", sandboxID)
+}
+
 func (b *wandbBackend) List(ctx context.Context, req ListRequest) ([]LeaseView, error) {
 	client, err := b.api()
 	if err != nil {
@@ -192,7 +275,8 @@ func (b *wandbBackend) List(ctx context.Context, req ListRequest) ([]LeaseView, 
 }
 
 func (b *wandbBackend) Status(ctx context.Context, req StatusRequest) (StatusView, error) {
-	if req.ID == "" {
+	sandboxID := strings.TrimSpace(req.ID)
+	if sandboxID == "" {
 		return StatusView{}, exit(2, "provider=%s status requires --id <sandbox-id>", providerName)
 	}
 	client, err := b.api()
@@ -200,7 +284,15 @@ func (b *wandbBackend) Status(ctx context.Context, req StatusRequest) (StatusVie
 		return StatusView{}, err
 	}
 	defer b.closeClientAfterOperation()
-	sb, err := client.Status(ctx, req.ID)
+	providerScope, err := wandbProviderScope()
+	if err != nil {
+		return StatusView{}, err
+	}
+	_, sandboxID, err = requireWandbOwnership(ctx, client, sandboxID, providerScope)
+	if err != nil {
+		return StatusView{}, err
+	}
+	sb, err := client.Status(ctx, sandboxID)
 	if err != nil {
 		return StatusView{}, err
 	}
@@ -221,7 +313,8 @@ func (b *wandbBackend) Status(ctx context.Context, req StatusRequest) (StatusVie
 }
 
 func (b *wandbBackend) Stop(ctx context.Context, req StopRequest) error {
-	if req.ID == "" {
+	sandboxID := strings.TrimSpace(req.ID)
+	if sandboxID == "" {
 		return exit(2, "provider=%s stop requires --id <sandbox-id>", providerName)
 	}
 	client, err := b.api()
@@ -229,7 +322,21 @@ func (b *wandbBackend) Stop(ctx context.Context, req StopRequest) error {
 		return err
 	}
 	defer b.closeClientAfterOperation()
-	return client.Stop(ctx, req.ID, 10, false)
+	providerScope, err := wandbProviderScope()
+	if err != nil {
+		return err
+	}
+	claim, sandboxID, err := requireWandbOwnership(ctx, client, sandboxID, providerScope)
+	if err != nil {
+		var missing *wandbSandboxMissingError
+		if errors.As(err, &missing) {
+			return removeWandbClaimAfter(claim, func() error { return nil })
+		}
+		return err
+	}
+	return removeWandbClaimAfter(claim, func() error {
+		return client.Stop(ctx, sandboxID, 10, false)
+	})
 }
 
 // Doctor mirrors the modal/e2b/runpod pattern: dial, probe auth via a cheap
