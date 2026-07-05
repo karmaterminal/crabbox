@@ -12,6 +12,7 @@
 
 ### Fixed
 
+- Centralized credential redaction for provider and `doctor` diagnostics, covering configured secrets, authorization headers, signed URLs, secret-bearing JSON fields, and private keys, and applied it to Sprites API errors. Thanks @coygeek.
 - Restricted production releases to default-branch repository dispatches for existing version tags in reviewed history, so tag pushes and ref-selectable manual workflows cannot run credentialed release configuration. Thanks @coygeek.
 - Kept explicit `CRABBOX_CONFIG` files inside the active repository in the repository trust domain, including symlink aliases, so they cannot redirect inherited provider credentials. Thanks @coygeek.
 - Pinned mediated-egress connections to validated public DNS results and rejected private, loopback, link-local, and reserved destinations, preventing allowlisted hostnames from rebinding into the operator network. Thanks @coygeek.
