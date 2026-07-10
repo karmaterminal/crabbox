@@ -19,6 +19,7 @@
 - Confined Nomad API redirects to the configured scheme, hostname, and effective port before replaying ACL tokens or request bodies, while keeping rejected Location secrets out of diagnostics. Thanks @coygeek.
 - Confined OVH API redirects to the configured scheme, hostname, and effective port before replaying signed credential headers, while keeping rejected Location secrets out of diagnostics. Thanks @coygeek.
 - Confined Scaleway SDK redirects to the configured scheme, hostname, and effective port before replaying provider tokens, while keeping rejected Location secrets out of diagnostics. Thanks @coygeek.
+- Escaped terminal controls and Unicode formatting characters in human JUnit result, shard, and failure-digest output while preserving raw JSON values. Thanks @coygeek.
 - Launched native Windows desktop apps directly in the active interactive session without scheduled tasks, waiting for a visible window and reporting its process ID, session, and title.
 - Unified direct macOS WebVNC with the authenticated portal: Tart and Parallels viewers now use the same chrome and controls as Linux and Windows when coordinator login is configured, with provider-lifetime registration and the local viewer retained as the offline fallback.
 - Replaced WebVNC password and username URL fragments with one-time credential handoff tickets, and made repeated `--open` calls reuse and focus the existing lease viewer tab when the browser supports cross-tab handoff.
