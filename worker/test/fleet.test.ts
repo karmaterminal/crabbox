@@ -10210,13 +10210,17 @@ describe("fleet lease identity and idle", () => {
 
   it("does not postpone the first AWS orphan sweep alarm on repeated scheduling", async () => {
     const storage = new MemoryStorage();
+    const now = new Date();
     storage.seed(
       "lease:cbx_000000000001",
       testLease({
         id: "cbx_000000000001",
         owner: "alice@example.com",
         org: "example-org",
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        lastTouchedAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
       }),
     );
     const fleet = testFleet(
@@ -15474,6 +15478,82 @@ describe("fleet lease identity and idle", () => {
     expect(create.status).toBe(429);
     await expect(create.json()).resolves.toMatchObject({
       error: "cost_limit_exceeded",
+    });
+  });
+
+  it("keeps expired managed leases inside active limits and rejects heartbeat revival", async () => {
+    const storage = new MemoryStorage();
+    let created = false;
+    const fleet = testFleet(
+      storage,
+      {
+        aws: fakeProvider(
+          () => {
+            created = true;
+          },
+          { provider: "aws" },
+        ),
+      },
+      { CRABBOX_MAX_ACTIVE_LEASES: "1" },
+    );
+    const lastTouchedAt = new Date(Date.now() - 120_000).toISOString();
+    const expiresAt = new Date(Date.now() - 60_000).toISOString();
+    const cleanupRetryAt = new Date(Date.now() + 300_000).toISOString();
+    storage.seed(
+      "lease:cbx_000000000001",
+      testLease({
+        id: "cbx_000000000001",
+        provider: "aws",
+        owner: "alice@example.com",
+        org: "example-org",
+        lastTouchedAt,
+        expiresAt,
+        cleanupAttempts: 1,
+        cleanupError: "provider cleanup failed",
+        cleanupRetryAt,
+      }),
+    );
+
+    const create = await fleet.fetch(
+      request("POST", "/v1/leases", {
+        headers: {
+          "x-crabbox-owner": "alice@example.com",
+          "cf-connecting-ip": "203.0.113.7",
+          "x-crabbox-org": "example-org",
+        },
+        body: {
+          leaseID: "cbx_abcdef123456",
+          provider: "aws",
+          class: "standard",
+          serverType: "c7a.8xlarge",
+          sshPublicKey: "ssh-ed25519 test",
+        },
+      }),
+    );
+    expect(create.status).toBe(429);
+    await expect(create.json()).resolves.toMatchObject({
+      error: "cost_limit_exceeded",
+      message: "active lease limit exceeded: 2/1",
+    });
+    expect(created).toBe(false);
+
+    const heartbeat = await fleet.fetch(
+      request("POST", "/v1/leases/cbx_000000000001/heartbeat", {
+        headers: {
+          "x-crabbox-owner": "alice@example.com",
+          "x-crabbox-org": "example-org",
+        },
+        body: { idleTimeoutSeconds: 900 },
+      }),
+    );
+    expect(heartbeat.status).toBe(409);
+    await expect(heartbeat.json()).resolves.toMatchObject({ error: "lease_expired" });
+    expect(storage.value<LeaseRecord>("lease:cbx_000000000001")).toMatchObject({
+      lastTouchedAt,
+      expiresAt,
+      cleanupAttempts: 1,
+      cleanupError: "provider cleanup failed",
+      cleanupRetryAt,
     });
   });
 
@@ -23073,6 +23153,21 @@ describe("fleet run history", () => {
         expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       }),
     );
+    const expiredTouchedAt = new Date(Date.now() - 120_000).toISOString();
+    const expiredRetryAt = new Date(Date.now() + 300_000).toISOString();
+    storage.seed(
+      "lease:cbx_000000000003",
+      testLease({
+        id: "cbx_000000000003",
+        slug: "expired-lobster",
+        owner: "peter@example.com",
+        org: "openclaw",
+        lastTouchedAt: expiredTouchedAt,
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+        cleanupAttempts: 1,
+        cleanupRetryAt: expiredRetryAt,
+      }),
+    );
     storage.seed(
       "run:run_000000000001",
       testRun({
@@ -23151,6 +23246,22 @@ describe("fleet run history", () => {
       leaseID: "cbx_000000000002",
       ok: false,
       error: "workspace_managed_lease",
+    });
+
+    await fleet.webSocketMessage(
+      socket as unknown as WebSocket,
+      JSON.stringify({ type: "heartbeat", leaseID: "cbx_000000000003" }),
+    );
+    expect(socket.sentJSON()[4]).toMatchObject({
+      type: "heartbeat",
+      leaseID: "cbx_000000000003",
+      ok: false,
+      error: "lease_expired",
+    });
+    expect(storage.value<LeaseRecord>("lease:cbx_000000000003")).toMatchObject({
+      lastTouchedAt: expiredTouchedAt,
+      cleanupAttempts: 1,
+      cleanupRetryAt: expiredRetryAt,
     });
   });
 

@@ -1914,6 +1914,16 @@ export class FleetCoordinator {
       });
       return;
     }
+    const heartbeatError = leaseHeartbeatStateError(lease);
+    if (heartbeatError) {
+      sendControl(socket, {
+        type: "heartbeat",
+        leaseID: lease.id,
+        ok: false,
+        error: heartbeatError,
+      });
+      return;
+    }
     const heartbeat: { idleTimeoutSeconds?: number; telemetry?: Partial<LeaseTelemetry> } = {};
     if (input.idleTimeoutSeconds !== undefined) {
       heartbeat.idleTimeoutSeconds = input.idleTimeoutSeconds;
@@ -5156,6 +5166,19 @@ export class FleetCoordinator {
       if (lease.cleanupStartedAt) {
         return json(
           { error: "cleanup_in_progress", message: "lease cleanup has already started" },
+          { status: 409 },
+        );
+      }
+      const heartbeatError = leaseHeartbeatStateError(lease);
+      if (heartbeatError) {
+        return json(
+          {
+            error: heartbeatError,
+            message:
+              heartbeatError === "lease_expired"
+                ? "lease heartbeat deadline has passed"
+                : "lease has already ended",
+          },
           { status: 409 },
         );
       }
@@ -16524,6 +16547,20 @@ function activeSlugCollision(
 
 function leaseIsLive(lease: LeaseRecord): boolean {
   return lease.state === "active" || lease.state === "provisioning";
+}
+
+function leaseHeartbeatStateError(
+  lease: LeaseRecord,
+  now = Date.now(),
+): "lease_ended" | "lease_expired" | undefined {
+  if (!leaseIsLive(lease)) {
+    return "lease_ended";
+  }
+  const expiresAt = Date.parse(lease.expiresAt);
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+    return "lease_expired";
+  }
+  return undefined;
 }
 
 function isRegisteredLease(lease: LeaseRecord): boolean {

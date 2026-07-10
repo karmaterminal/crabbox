@@ -14,6 +14,7 @@
 
 ### Fixed
 
+- Kept expired provider-consuming leases inside active capacity limits and rejected heartbeats after their deadline, preventing cleanup-pending leases from bypassing coordinator caps. Thanks @coygeek.
 - Redacted passwordless URL userinfo and common OAuth and cloud credential aliases consistently from CLI and coordinator diagnostics, including truncated provider error bodies. Thanks @coygeek.
 - Bound artifact uploads to private snapshots and manifest hashes to rooted validated file handles, then replaced generated outputs through root-confined temporary files, preventing path races from reading or overwriting files outside the bundle. Thanks @coygeek.
 - Kept AWS developer-image minting compatible with macOS system Bash when AWS region selection is automatic.
