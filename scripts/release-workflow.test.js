@@ -502,7 +502,10 @@ test("release documentation forbids automatic publication, deletion, and Homebre
   assert.match(release, /Update and prove Homebrew/);
   assert.match(release, /Developer ID Application: OpenClaw Foundation \(FWJYW4S8P8\)/);
   assert.match(release, /PACKAGE_SCRIPT_SHA256/);
-  assert.match(release, /PACKAGE_SCRIPT_SHA256=\$\(git --no-pager show/);
+  assert.match(
+    release,
+    /PACKAGE_SCRIPT_SHA256=\$\(git --no-pager show \\\n  "\$\{VERIFIER_COMMIT\}:scripts\/package-release\.sh"/,
+  );
   assert.match(release, /mac-release[\s\S]*\/bin\/bash -c/);
   const secretGateStart = release.indexOf("codesign-run --with-package-secrets --");
   const secretGateEnd = release.indexOf("' crabbox-protected-package", secretGateStart);

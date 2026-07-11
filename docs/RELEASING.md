@@ -211,7 +211,7 @@ test "${#CANDIDATE_MANIFEST_SHA256}" -eq 64
 test "$(git remote get-url origin)" = https://github.com/openclaw/crabbox
 test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$VERIFIER_COMMIT"
 PACKAGE_SCRIPT_SHA256=$(git --no-pager show \
-  "$VERIFIER_COMMIT:scripts/package-release.sh" | shasum -a 256 | awk '{print $1}')
+  "${VERIFIER_COMMIT}:scripts/package-release.sh" | shasum -a 256 | awk '{print $1}')
 test "$(shasum -a 256 scripts/package-release.sh | awk '{print $1}')" = \
   "$PACKAGE_SCRIPT_SHA256"
 
