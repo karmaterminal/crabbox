@@ -188,6 +188,10 @@ describe("private AWS workspaces", () => {
       async listCrabboxServers(): Promise<ProviderMachine[]> {
         return [];
       },
+      supportsSSHHostKeyInjection(): boolean {
+        // Capability-owned workspaces must bypass generic provider host-key injection.
+        return true;
+      },
       async findServerByLease(): Promise<ProviderMachine | undefined> {
         return undefined;
       },
@@ -246,7 +250,8 @@ describe("private AWS workspaces", () => {
         return undefined;
       },
     };
-    const fleet = new FleetCoordinator(new MemoryRuntime(), privateAWSEnv(), {
+    const runtime = new MemoryRuntime();
+    const fleet = new FleetCoordinator(runtime, privateAWSEnv(), {
       aws: provider,
     } as never);
 
@@ -279,6 +284,10 @@ describe("private AWS workspaces", () => {
       capacityRegions: ["us-west-2"],
       capacityHints: false,
     });
+    const leases = await runtime.storage.list<LeaseRecord>({ prefix: "lease:" });
+    const lease = [...leases.values()][0];
+    expect(lease?.sshHostKey).toBeUndefined();
+    expect(JSON.stringify(lease)).not.toContain("OPENSSH PRIVATE KEY");
     expect(requested?.awsSSMBootstrapCommand).toContain("crabbox-workspace.service");
     expect(requested?.awsSSMBootstrapCommand).toContain("node server.js");
     expect(requested?.awsSSMBootstrapCommand).toContain(
@@ -558,6 +567,9 @@ function privateRecoveryProvider(state: RecoveryProviderState): Record<string, u
     workspaceCapability: privateWorkspaceCapability(),
     async listCrabboxServers(): Promise<ProviderMachine[]> {
       return [];
+    },
+    supportsSSHHostKeyInjection(): boolean {
+      return false;
     },
     async recoverServer(): Promise<ProviderMachine> {
       state.recovers += 1;

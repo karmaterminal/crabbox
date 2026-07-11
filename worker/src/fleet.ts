@@ -2283,6 +2283,7 @@ export class FleetCoordinator {
     request: Request,
     reservationGuard?: () => Promise<Response | undefined>,
     workspaceID?: string,
+    workspaceCapability?: ProviderWorkspaceCapability,
   ): Promise<Response> {
     const owner = requestOwner(request);
     const org = requestOrg(request, this.env);
@@ -2319,7 +2320,7 @@ export class FleetCoordinator {
     }
     if (workspaceID) {
       config = { ...config, awsUseStockImage: config.provider === "aws" };
-      if (!config.awsPrivate) {
+      if (!workspaceCapability) {
         const hostKeys = workspaceSSHHostKeysFromRequest(request);
         if (!hostKeys) {
           return json(
@@ -2485,6 +2486,10 @@ export class FleetCoordinator {
       providerRegionForConfig(config),
       providerProjectForConfig(config),
     );
+    const injectsSSHHostKey = !workspaceCapability && provider.supportsSSHHostKeyInjection(config);
+    if (injectsSSHHostKey) {
+      config = withSSHHostKey(config, `crabbox-${leaseID}`);
+    }
     const providerHourlyUSD = await provider
       .hourlyPriceUSD(config.serverType, config)
       .catch(() => undefined);
@@ -2670,6 +2675,7 @@ export class FleetCoordinator {
         sshUser: config.sshUser,
         sshPort: config.sshPort,
         sshFallbackPorts: config.sshFallbackPorts,
+        ...(injectsSSHHostKey ? { sshHostKey: sshPublicKeyIdentity(config.sshHostPublicKey) } : {}),
         workRoot: config.workRoot,
         keep: config.keep,
         ttlSeconds: config.ttlSeconds,
@@ -3709,9 +3715,7 @@ export class FleetCoordinator {
     const provisionClaim = crypto.randomUUID();
     const sshHostKeys = workspaceCapability
       ? undefined
-      : sshUtils.generateKeyPairSync("ed25519", {
-          comment: `crabbox-${workspace.id}`,
-        });
+      : generateSSHHostKeyPair(`crabbox-${workspace.id}`);
     const sshHostKeySha256 = sshHostKeys
       ? await workspaceSSHHostKeyFingerprint(sshHostKeys.public)
       : undefined;
@@ -3776,6 +3780,7 @@ export class FleetCoordinator {
           return undefined;
         },
         workspace.id,
+        workspaceCapability,
       );
     } catch (error) {
       const persistedLease = await this.getLease(workspace.leaseID);
@@ -16605,6 +16610,25 @@ function workspaceSSHHostKeysFromRequest(
   }
 }
 
+function generateSSHHostKeyPair(comment: string): { private: string; public: string } {
+  return sshUtils.generateKeyPairSync("ed25519", { comment });
+}
+
+function withSSHHostKey(config: LeaseConfig, comment: string): LeaseConfig {
+  if (config.sshHostPrivateKey || config.sshHostPublicKey) {
+    if (!config.sshHostPrivateKey || !config.sshHostPublicKey) {
+      throw new Error("SSH host key material must include both private and public halves");
+    }
+    return config;
+  }
+  const hostKeys = generateSSHHostKeyPair(comment);
+  return {
+    ...config,
+    sshHostPrivateKey: hostKeys.private,
+    sshHostPublicKey: hostKeys.public,
+  };
+}
+
 async function workspaceSSHHostKeyFingerprint(publicKey: string): Promise<string> {
   const [type, encoded] = publicKey.trim().split(/\s+/u, 3);
   if (type !== "ssh-ed25519" || !encoded) {
@@ -17976,6 +18000,7 @@ interface CloudProvider {
     lease?: LeaseRecord,
     purpose?: "operate" | "observe",
   ): ProviderWorkspaceCapability | undefined;
+  supportsSSHHostKeyInjection(config: ReturnType<typeof leaseConfig>): boolean;
   restrictedLeaseRequestFields?(input: LeaseRequest): string[];
   recoverServer?(lease: LeaseRecord): Promise<ProviderMachine | undefined>;
   resumeRecoveredServer?(
@@ -18145,6 +18170,10 @@ export class HetznerProvider implements CloudProvider {
     return servers.map((server) => this.client.toMachine(server));
   }
 
+  supportsSSHHostKeyInjection(config: ReturnType<typeof leaseConfig>): boolean {
+    return config.target === "linux";
+  }
+
   async findServerByLease(leaseID: string): Promise<ProviderMachine | undefined> {
     const server = await this.client.findServerByLease(leaseID);
     return server ? this.client.toMachine(server) : undefined;
@@ -18299,6 +18328,10 @@ export class AzureProvider implements CloudProvider {
 
   listCrabboxServers(): Promise<ProviderMachine[]> {
     return this.client.listCrabboxServers();
+  }
+
+  supportsSSHHostKeyInjection(config: ReturnType<typeof leaseConfig>): boolean {
+    return config.target === "linux" && !config.azureSnapshot;
   }
 
   getServer(id: string): Promise<ProviderMachine> {
@@ -18488,6 +18521,10 @@ export class GCPProvider implements CloudProvider {
     return this.client.listCrabboxServers();
   }
 
+  supportsSSHHostKeyInjection(config: ReturnType<typeof leaseConfig>): boolean {
+    return config.target === "linux";
+  }
+
   getServer(id: string): Promise<ProviderMachine> {
     return this.client.getServer(id);
   }
@@ -18653,6 +18690,10 @@ export class DaytonaProvider implements CloudProvider {
 
   listCrabboxServers(): Promise<ProviderMachine[]> {
     return this.client.listCrabboxServers();
+  }
+
+  supportsSSHHostKeyInjection(): boolean {
+    return false;
   }
 
   getServer(id: string): Promise<ProviderMachine> {
@@ -18913,6 +18954,10 @@ export class AWSProvider implements CloudProvider {
 
   listCrabboxServers(): Promise<ProviderMachine[]> {
     return this.client.listCrabboxServers();
+  }
+
+  supportsSSHHostKeyInjection(config: ReturnType<typeof leaseConfig>): boolean {
+    return config.target === "linux" && !config.awsPrivate;
   }
 
   getServer(id: string): Promise<ProviderMachine> {
