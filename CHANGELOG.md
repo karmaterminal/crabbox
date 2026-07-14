@@ -2,6 +2,10 @@
 
 ## 0.38.1 - Unreleased
 
+### Added
+
+- Exposed authoritative AWS instance-profile attachment state in `inspect --json` provider metadata for admission-policy enforcement across direct and brokered leases.
+
 ### Fixed
 
 - Protected portal and isolated Code sessions with browser-enforced host-only cookies, rejected duplicate session cookies, and retired legacy cookie names to prevent sibling-origin shadowing. Thanks @coygeek.
