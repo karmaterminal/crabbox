@@ -572,6 +572,14 @@ func configShowView(cfg Config) map[string]any {
 			"mcp":             cfg.DockerSandbox.MCP,
 			"kit":             cfg.DockerSandbox.Kit,
 		},
+		"cloudRunSandbox": map[string]any{
+			"gatewayURL":  redactedConfigURL(cfg.CloudRunSandbox.GatewayURL),
+			"cliPath":     cfg.CloudRunSandbox.CLIPath,
+			"workdir":     cfg.CloudRunSandbox.Workdir,
+			"allowEgress": cfg.CloudRunSandbox.AllowEgress,
+			"write":       cfg.CloudRunSandbox.Write,
+			"rootfs":      cfg.CloudRunSandbox.Rootfs,
+		},
 		"multipass": map[string]any{
 			"cliPath":       cfg.Multipass.CLIPath,
 			"image":         cfg.Multipass.Image,
