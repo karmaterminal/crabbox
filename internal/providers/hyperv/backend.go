@@ -21,6 +21,14 @@ type backend struct {
 	spec ProviderSpec
 	cfg  Config
 	rt   Runtime
+
+	// PowerShell Direct can block instead of failing while a guest boots, so
+	// readiness probes and later guest calls need per-attempt timeouts.
+	// Overridden by tests.
+	guestReadyProbeTimeout time.Duration
+	guestReadyBudget       time.Duration
+	guestInvokeTimeout     time.Duration
+	guestRetryBackoff      time.Duration
 }
 
 var hypervHostOS = runtime.GOOS
@@ -41,7 +49,15 @@ type hypervNetAdapter struct {
 
 func newBackend(spec ProviderSpec, cfg Config, rt Runtime) Backend {
 	applyDefaults(&cfg)
-	return &backend{spec: spec, cfg: cfg, rt: rt}
+	return &backend{
+		spec:                   spec,
+		cfg:                    cfg,
+		rt:                     rt,
+		guestReadyProbeTimeout: 45 * time.Second,
+		guestReadyBudget:       5 * time.Minute,
+		guestInvokeTimeout:     10 * time.Minute,
+		guestRetryBackoff:      3 * time.Second,
+	}
 }
 
 func applyDefaults(cfg *Config) {
@@ -194,6 +210,9 @@ func (b *backend) Acquire(ctx context.Context, req AcquireRequest) (LeaseTarget,
 		return nil
 	}
 
+	if err := b.waitGuestReady(ctx, name, cfg.HyperV.User); err != nil {
+		return LeaseTarget{}, errors.Join(fmt.Errorf("guest did not become reachable over PowerShell Direct: %w", err), cleanupFailedLease())
+	}
 	if err := b.stageSSHKey(ctx, name, cfg.HyperV.User, publicKey); err != nil {
 		return LeaseTarget{}, errors.Join(fmt.Errorf("pre-network SSH lockdown failed: %w", err), cleanupFailedLease())
 	}
@@ -596,11 +615,51 @@ func hypervInitHiveName(vhdPath string) string {
 	return fmt.Sprintf("crabbox-init-%x", sum[:8])
 }
 
+// invokeGuestScript bounds a PowerShell Direct attempt so callers can retry it.
+func (b *backend) invokeGuestScript(ctx context.Context, script string, env []string, perAttempt time.Duration) (LocalCommandResult, error) {
+	attemptCtx, cancel := context.WithTimeout(ctx, perAttempt)
+	defer cancel()
+	return b.powershellWithEnv(attemptCtx, script, env)
+}
+
+// waitGuestReady gates the first real guest call on authenticated PowerShell
+// Direct readiness. Each probe is bounded because early boot calls can block.
+func (b *backend) waitGuestReady(ctx context.Context, vmName, user string) error {
+	script := fmt.Sprintf(
+		`$cred = New-Object PSCredential('%s', (ConvertTo-SecureString $env:_CRABBOX_GP -AsPlainText -Force)); `+
+			`Invoke-Command -VMName '%s' -Credential $cred -ScriptBlock { $true } -ErrorAction Stop | Out-Null`,
+		escapePSString(user), escapePSString(vmName),
+	)
+	env := append(os.Environ(), "_CRABBOX_GP="+b.guestPassword())
+	// Include attempts and backoff in the overall boot budget.
+	budgetCtx, cancel := context.WithTimeout(ctx, b.guestReadyBudget)
+	defer cancel()
+	var lastErr error
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-budgetCtx.Done():
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				return fmt.Errorf("guest %s did not accept PowerShell Direct within %s: %w", vmName, b.guestReadyBudget, lastErr)
+			case <-time.After(b.guestRetryBackoff):
+			}
+		}
+		result, err := b.invokeGuestScript(budgetCtx, script, env, b.guestReadyProbeTimeout)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		lastErr = commandError("guest readiness probe", result, err)
+	}
+}
+
 // invokeInGuest runs a PowerShell script block inside the guest over PowerShell
-// Direct, authenticating as user with the configured guest password. It retries
-// with backoff while the guest finishes booting. scriptBlock is the body of an
-// Invoke-Command -ScriptBlock { ... }; the guest password is passed via the
-// _CRABBOX_GP env var, never on the command line.
+// Direct with bounded retries. The guest password is passed through
+// _CRABBOX_GP, never the command line.
 func (b *backend) invokeInGuest(ctx context.Context, vmName, user, scriptBlock, label string) error {
 	script := fmt.Sprintf(
 		`$cred = New-Object PSCredential('%s', (ConvertTo-SecureString $env:_CRABBOX_GP -AsPlainText -Force)); `+
@@ -614,31 +673,54 @@ func (b *backend) invokeInGuest(ctx context.Context, vmName, user, scriptBlock, 
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(time.Duration(attempt*5) * time.Second):
+			case <-time.After(time.Duration(attempt) * b.guestRetryBackoff):
 			}
 			fmt.Fprintf(b.rt.Stderr, "retrying %s (%d/5)...\n", label, attempt+1)
 		}
-		result, err := b.powershellWithEnv(ctx, script, env)
+		result, err := b.invokeGuestScript(ctx, script, env, b.guestInvokeTimeout)
 		if err == nil {
 			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 		lastErr = commandError(label, result, err)
 	}
 	return lastErr
 }
 
-// ensureOpenSSH installs the Windows OpenSSH server inside the guest, but keeps
-// sshd stopped and its firewall rule disabled until injectSSHKey replaces the
-// template credentials and host keys. This lets a plain Windows template be
-// used as-is: it only needs a reachable administrator account
-// (CRABBOX_HYPERV_GUEST_PASSWORD), not a pre-baked SSH setup. Idempotent;
-// installing the capability needs guest internet (or a configured
-// Features-on-Demand source).
+// Pinned Win32-OpenSSH payload used by Microsoft.OpenSSH.Preview. It runs as
+// privileged guest code, so update the URL and SHA-256 together and never use a
+// floating release. The upstream tag intentionally has no leading "v".
+const (
+	win32OpenSSHAMD64URL    = "https://github.com/PowerShell/Win32-OpenSSH/releases/download/10.0.0.0p2-Preview/OpenSSH-Win64-v10.0.0.0.msi"
+	win32OpenSSHAMD64SHA256 = "ddec9c53864280759cf9f74791cefd387100e3946aa849a1c138a4ed1b96b7d9"
+	win32OpenSSHARM64URL    = "https://github.com/PowerShell/Win32-OpenSSH/releases/download/10.0.0.0p2-Preview/OpenSSH-ARM64-v10.0.0.0.msi"
+	win32OpenSSHARM64SHA256 = "7a17d0e22d004fb47ca4bfd8fef926fa305de4ebf70a6f3c7a29c39aabef0023"
+)
+
+// ensureOpenSSH reuses an existing service or installs the pinned, verified MSI
+// without relying on Windows Update. The MSI may start sshd and add an allow
+// rule, so stageSSHKey's pre-network block and the stop/manual steps below keep
+// it closed until injectSSHKey installs the final key-only configuration.
 func (b *backend) ensureOpenSSH(ctx context.Context, vmName, user string) error {
+	// Win32_Processor.Architecture uses 9 for x64 and 12 for ARM64.
 	scriptBlock := `$ErrorActionPreference='Stop'; ` +
-		`$capName = 'OpenSSH.Server~~~~0.0.1.0'; ` +
-		`$cap = Get-WindowsCapability -Online -Name $capName; ` +
-		`if ($cap.State -ne 'Installed') { Add-WindowsCapability -Online -Name $capName | Out-Null }; ` +
+		`if (-not (Get-Service -Name sshd -ErrorAction SilentlyContinue)) { ` +
+		`[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; ` +
+		`$nativeArch=(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Architecture); ` +
+		`switch ([int]$nativeArch) { ` +
+		`9 { $msiUri='` + win32OpenSSHAMD64URL + `'; $expectedHash='` + win32OpenSSHAMD64SHA256 + `' } ` +
+		`12 { $msiUri='` + win32OpenSSHARM64URL + `'; $expectedHash='` + win32OpenSSHARM64SHA256 + `' } ` +
+		`default { throw ('unsupported Windows architecture for OpenSSH: ' + $nativeArch) } }; ` +
+		`$msi=Join-Path $env:TEMP 'crabbox-openssh.msi'; ` +
+		`Invoke-WebRequest -UseBasicParsing -Uri $msiUri -OutFile $msi; ` +
+		`$hash=(Get-FileHash -Path $msi -Algorithm SHA256).Hash; ` +
+		`if ($hash -ne $expectedHash) { Remove-Item $msi -Force; throw ('OpenSSH SHA-256 mismatch: got ' + $hash) }; ` +
+		`$proc=Start-Process msiexec.exe -ArgumentList @('/i', ('"'+$msi+'"'), '/qn', '/norestart') -Wait -PassThru; ` +
+		`if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) { throw ('OpenSSH MSI install failed: exit ' + $proc.ExitCode) }; ` +
+		`Remove-Item $msi -Force -ErrorAction SilentlyContinue; ` +
+		`if (-not (Get-Service -Name sshd -ErrorAction SilentlyContinue)) { throw 'sshd service missing after OpenSSH MSI install' } }; ` +
 		`Stop-Service -Name sshd -Force -ErrorAction SilentlyContinue; ` +
 		`Set-Service -Name sshd -StartupType Manual; ` +
 		`if (Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue) { ` +
@@ -732,8 +814,11 @@ func sshAccessScript(user, publicKey string, activate bool) string {
 		return script
 	}
 	return script +
+		`$sshdExe = ((Get-CimInstance Win32_Service -Filter "Name='sshd'").PathName).Trim().Trim('"'); ` +
+		`if (-not $sshdExe) { throw 'sshd service not found for OpenSSH tool path resolution' }; ` +
+		`$sshBin = Split-Path -Parent $sshdExe; ` +
+		`$sshKeygen = Join-Path $sshBin 'ssh-keygen.exe'; ` +
 		`Get-ChildItem -Path $hostKeyDir -Filter 'ssh_host_*' -ErrorAction SilentlyContinue | Remove-Item -Force; ` +
-		`$sshKeygen = Join-Path $env:WINDIR 'System32\OpenSSH\ssh-keygen.exe'; ` +
 		`& $sshKeygen -A; ` +
 		`if ($LASTEXITCODE -ne 0) { throw 'SSH host key generation failed' }; ` +
 		`$systemSID = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18'); ` +
@@ -745,7 +830,6 @@ func sshAccessScript(user, publicKey string, activate bool) string {
 		`$hostKeyACL.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($systemSID, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow)); ` +
 		`$hostKeyACL.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($adminsSID, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow)); ` +
 		`Set-Acl -LiteralPath $_.FullName -AclObject $hostKeyACL }; ` +
-		`$sshdExe = Join-Path $env:WINDIR 'System32\OpenSSH\sshd.exe'; ` +
 		`& $sshdExe -t -f $sshdConfig; ` +
 		`if ($LASTEXITCODE -ne 0) { throw 'sshd_config validation failed' }; ` +
 		`Set-Service -Name sshd -StartupType Automatic; ` +

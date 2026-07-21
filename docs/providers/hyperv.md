@@ -10,8 +10,7 @@ Family: `local-vm`
 The Hyper-V provider creates and manages Windows virtual machines on a local
 Windows host using Microsoft Hyper-V. VMs are provisioned as Generation 2 VMs
 from a pre-configured VHDX template, connected to a configurable virtual switch
-(default: "Default Switch"), and accessed over SSH via the built-in Windows
-OpenSSH server.
+(default: "Default Switch"), and accessed over SSH via Windows OpenSSH.
 
 Hyper-V must be enabled on the host (`Enable-WindowsOptionalFeature -Online
 -FeatureName Microsoft-Hyper-V-All`). The provider is Windows-only and will
@@ -25,17 +24,15 @@ reject configuration on non-Windows hosts.
   - A local administrator account selected with `--hyperv-user`, with its
     password explicitly provided through `CRABBOX_HYPERV_GUEST_PASSWORD`
   - Network configured for DHCP on the Hyper-V virtual switch
-  - Guest internet access (or a Features-on-Demand source) so OpenSSH can be
-    installed on first use
+  - Guest internet access to GitHub when OpenSSH or git must be installed on
+    first use
 - The Hyper-V PowerShell module (included with the Hyper-V feature)
 
-OpenSSH and git do **not** need to be pre-installed: on first acquire the
-provider installs the Windows OpenSSH server (over PowerShell Direct) and, if
-absent, git (portable MinGit, pinned to a specific release and SHA-256-verified
-before extraction) — both are no-ops when already present, so a template that
-pre-bakes them just skips the per-lease download. This keeps the
-template requirement to a plain Windows VHDX with a known admin password. ISO
-images are not supported — provide a fully installed VHDX.
+OpenSSH and git do **not** need to be pre-installed. When missing, the provider
+installs pinned, SHA-256-verified Win32-OpenSSH (matching the guest architecture)
+and MinGit packages. Existing installations are reused. The OpenSSH bootstrap
+does not require Windows Update or Features on Demand. ISO images are not
+supported; use an installed VHDX with a known administrator password.
 
 ### Preparing a template
 
@@ -133,19 +130,20 @@ During `Acquire`, the provider:
 2. With `--hyperv-init-password`, mounts the lease disk offline and writes a
    first-boot `RunOnce` that sets the guest password (password-less templates)
 3. Creates and starts the VM with its network adapter disconnected
-4. Uses PowerShell Direct to stop/disable sshd, add an inbound TCP/22 block
+4. Waits for PowerShell Direct readiness within a bounded boot timeout
+5. Uses PowerShell Direct to stop/disable sshd, add an inbound TCP/22 block
    rule, replace authorized keys, discard template `Match` authentication
    blocks, and restrict SSH to the selected user
-5. Connects the network adapter, installs Windows OpenSSH if absent, and keeps
-   sshd stopped behind the quarantine rule
-6. Reapplies the final key-only config, validates `sshd_config`, regenerates
+6. Connects the network adapter, installs the pinned Win32-OpenSSH MSI from
+   GitHub if `sshd` is absent, and keeps sshd stopped behind the quarantine rule
+7. Reapplies the final key-only config, validates `sshd_config`, regenerates
    per-lease SSH host keys, starts sshd, and removes the quarantine rule last
-7. Installs git (MinGit) if absent — required for Crabbox sync
-8. Waits for SSH readiness on the injected key
+8. Installs git (MinGit) if absent — required for Crabbox sync
+9. Waits for SSH readiness on the injected key
 
-Both the OpenSSH-install and key-injection steps authenticate over PowerShell
-Direct using the guest administrator password and retry up to 5 times with
-backoff to allow the guest OS to boot.
+PowerShell Direct calls use the guest administrator password. Readiness and
+later guest operations have bounded retries, preventing a stalled call from
+hanging the lease.
 
 Set `CRABBOX_HYPERV_GUEST_PASSWORD` or `hyperv.guestPassword` in trusted user
 config to match the administrator password in your VHDX template. The provider
