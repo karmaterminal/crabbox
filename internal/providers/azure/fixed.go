@@ -13,6 +13,8 @@ import (
 
 var fixedAzureLeaseKind = core.FixedLeaseKind{ClaimProvider: "azure", IntentVersion: 1, Label: "Azure"}
 
+const fixedAzureUserAssignedIdentityAttempt = "user_assigned_identity_resource_id"
+
 func (*azureLeaseBackend) SupportsRequestedLeaseID() bool { return true }
 
 type fixedAzureCreator interface {
@@ -69,7 +71,8 @@ func (b *azureLeaseBackend) acquireFixed(ctx context.Context, req core.AcquireRe
 			CIDRs                                                                                                                                                    []string
 			Keep                                                                                                                                                     bool
 			TTL, Idle                                                                                                                                                time.Duration
-		}{core.DirectLeaseLabels(cfg, req.RequestedLeaseID, req.RequestedSlug, "azure", cfg.Capacity.Market, req.Keep, time.Unix(0, 0)), cfg.Azure.Location, cfg.Azure.Image, cfg.Azure.OSDisk, cfg.Azure.OSDiskSKU, cfg.Azure.VNet, cfg.Azure.Subnet, cfg.Azure.NSG, cfg.Azure.Network, cfg.ServerType, cfg.Architecture, cfg.TargetOS, cfg.WindowsMode, bootstrap, core.NormalizeLeaseSlug(req.RequestedSlug), cfg.SSHUser, cfg.SSHPort, cfg.WorkRoot, cfg.Pond, cfg.Capacity.Market, cfg.Azure.SSHCIDRs, req.Keep, cfg.TTL, cfg.IdleTimeout})
+			Identity                                                                                                                                                 string `json:",omitempty"`
+		}{core.DirectLeaseLabels(cfg, req.RequestedLeaseID, req.RequestedSlug, "azure", cfg.Capacity.Market, req.Keep, time.Unix(0, 0)), cfg.Azure.Location, cfg.Azure.Image, cfg.Azure.OSDisk, cfg.Azure.OSDiskSKU, cfg.Azure.VNet, cfg.Azure.Subnet, cfg.Azure.NSG, cfg.Azure.Network, cfg.ServerType, cfg.Architecture, cfg.TargetOS, cfg.WindowsMode, bootstrap, core.NormalizeLeaseSlug(req.RequestedSlug), cfg.SSHUser, cfg.SSHPort, cfg.WorkRoot, cfg.Pond, cfg.Capacity.Market, cfg.Azure.SSHCIDRs, req.Keep, cfg.TTL, cfg.IdleTimeout, cfg.Azure.UserAssignedIdentityResourceID})
 		if err != nil {
 			return core.FixedLeaseBinding{}, err
 		}
@@ -96,13 +99,17 @@ func (b *azureLeaseBackend) acquireFixed(ctx context.Context, req core.AcquireRe
 		server, err := client.GetServer(ctx, name)
 		return core.FixedLookupObservation(fixedAzureLeaseKind, *claim, server, err, isAzureCleanupNotFound, validateFixedAzureServer)
 	}, Plan: func(ctx context.Context, claim core.LeaseClaim) (core.FixedAttemptPlan, error) {
-		return core.FixedAttemptPlan{Values: map[string]string{"name": core.LeaseProviderName(claim.LeaseID, claim.Slug)},
+		values := map[string]string{"name": core.LeaseProviderName(claim.LeaseID, claim.Slug)}
+		if cfg.Azure.UserAssignedIdentityResourceID != "" {
+			values[fixedAzureUserAssignedIdentityAttempt] = cfg.Azure.UserAssignedIdentityResourceID
+		}
+		return core.FixedAttemptPlan{Values: values,
 			NonceKey: "nonce", FingerprintLabel: "fixed_intent_sha256", NonceLabel: "fixed_attempt",
 			DirectLabels: &core.FixedDirectLabels{Config: cfg, Provider: "azure", Market: cfg.Capacity.Market, Keep: req.Keep},
 		}, nil
 	}, Submit: func(ctx context.Context, tx *core.FixedTransaction) (core.Server, error) {
 		claim := tx.Claim
-		server, err := creator.CreateFixedServer(ctx, cfg, publicKey, claim.LeaseID, claim.Slug, maps.Clone(claim.Labels))
+		server, err := creator.CreateFixedServer(ctx, cfg, publicKey, claim.LeaseID, claim.Slug, tx.CreateLabels())
 		if err != nil {
 			return core.Server{}, fmt.Errorf("Azure fixed create unresolved; replay or stop lease %s: %w", claim.LeaseID, err)
 		}
@@ -121,6 +128,9 @@ func (b *azureLeaseBackend) acquireFixed(ctx context.Context, req core.AcquireRe
 			return core.LeaseTarget{}, err
 		}
 		if err := validateFixedAzureServer(*claim, server); err != nil {
+			return core.LeaseTarget{}, err
+		}
+		if err := core.ValidateAzureVMUserAssignedIdentity(server, cfg.Azure.UserAssignedIdentityResourceID); err != nil {
 			return core.LeaseTarget{}, err
 		}
 		target := core.SSHTargetFromConfig(cfg, core.AzureServerHost(server, cfg.Azure.Network))
@@ -170,6 +180,12 @@ func (b *azureLeaseBackend) resolveFixed(ctx context.Context, client azureClient
 		server, err := client.GetServer(ctx, claim.FixedCreateIntent.Attempt["name"])
 		if err == nil {
 			err = validateFixedAzureServer(claim, server)
+			if err == nil && !req.ReleaseOnly {
+				err = core.ValidateAzureVMUserAssignedIdentity(server, b.Cfg.Azure.UserAssignedIdentityResourceID)
+				if err == nil {
+					err = core.ValidateAzureVMUserAssignedIdentity(server, claim.FixedCreateIntent.Attempt[fixedAzureUserAssignedIdentityAttempt])
+				}
+			}
 		}
 		return server, err
 	})
@@ -201,6 +217,11 @@ func (b *azureLeaseBackend) RetainLeaseClaimAfterReleaseWithClaim(lease core.Lea
 }
 
 func (b *azureLeaseBackend) resolvedAzureLease(server core.Server, target core.SSHTarget, leaseID string, releaseOnly bool) (core.LeaseTarget, error) {
+	if !releaseOnly {
+		if err := core.ValidateAzureVMUserAssignedIdentity(server, b.Cfg.Azure.UserAssignedIdentityResourceID); err != nil {
+			return core.LeaseTarget{}, err
+		}
+	}
 	if server.Labels["fixed_attempt"] != "" {
 		claim, exists, err := core.ReadLeaseClaimWithPresence(leaseID)
 		if err != nil {
@@ -211,6 +232,11 @@ func (b *azureLeaseBackend) resolvedAzureLease(server core.Server, target core.S
 		}
 		if err := validateFixedAzureServer(claim, server); err != nil {
 			return core.LeaseTarget{}, err
+		}
+		if !releaseOnly {
+			if err := core.ValidateAzureVMUserAssignedIdentity(server, claim.FixedCreateIntent.Attempt[fixedAzureUserAssignedIdentityAttempt]); err != nil {
+				return core.LeaseTarget{}, err
+			}
 		}
 	}
 	return b.ResolvedLeaseTarget(server, target, leaseID, releaseOnly)

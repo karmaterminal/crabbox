@@ -184,6 +184,19 @@ connecting through a VPN to the Azure virtual network.
 
 ### Environment variables
 
+For direct VM leases, `--azure-user-assigned-identity-resource-id` (or
+`azure.userAssignedIdentityResourceId` in config) attaches one existing
+user-assigned managed identity. Crabbox verifies the attachment in Azure's VM
+identity field before a fixed lease becomes ready or can be adopted. The
+allocator must have permission to assign the identity at its resource scope.
+Release-only lookup and deletion remain available if the attachment is later
+removed.
+
+To enable an identity for an existing fixed lease, stop that lease and allocate
+a replacement with a new lease ID. Fixed create inputs cannot change in place,
+and a stopped fixed lease ID remains terminal. Claims created without this
+setting can still be resolved and released.
+
 Direct-mode config can be supplied entirely via environment:
 
 ```text
@@ -194,6 +207,7 @@ AZURE_CLIENT_SECRET              # service-principal secret (never read from con
 CRABBOX_AZURE_BACKEND            # vm | dynamic-sessions
 CRABBOX_AZURE_LOCATION
 CRABBOX_AZURE_RESOURCE_GROUP
+CRABBOX_AZURE_USER_ASSIGNED_IDENTITY_RESOURCE_ID
 CRABBOX_AZURE_IMAGE
 CRABBOX_AZURE_WINDOWS_ARM64_IMAGE
 CRABBOX_AZURE_OS_DISK            # managed | ephemeral | ephemeral-preview | auto
