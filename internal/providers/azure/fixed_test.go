@@ -284,6 +284,52 @@ func TestFixedAzureExplicitRecoveryResumesInterruptedCleanup(t *testing.T) {
 	}
 }
 
+func TestFixedAzureExplicitRecoveryAbsentWithoutBinding(t *testing.T) {
+	client := &fakeAzureClient{}
+	b := fixedAzureTestBackend(t, client)
+	req := core.AcquireRequest{RequestedLeaseID: "cbx_abcdef123464", RequestedSlug: "absent", Repo: core.Repo{Root: t.TempDir()}}
+	_, err := b.Acquire(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.servers = nil // External cleanup removed the VM; no binding was captured.
+	t.Chdir(req.Repo.Root)
+	t.Setenv("CRABBOX_CONFIG", "")
+	t.Setenv("CRABBOX_PROVIDER", "azure")
+	t.Setenv("CRABBOX_COORDINATOR", "")
+	app := core.App{Stdout: io.Discard, Stderr: io.Discard}
+	args := []string{"stop", "--force", "--provider", "azure", "--id", req.RequestedLeaseID}
+	interrupted := errors.New("absence verification interrupted")
+	client.deleteOwnedFunc = func(server core.Server) error {
+		stored, err := core.ReadLeaseClaim(req.RequestedLeaseID)
+		if err != nil || stored.FixedCreateIntent.State == "released" || stored.Labels[core.AzureCleanupBindingLabel] != "" || server.Labels[core.AzureCleanupBindingLabel] != "" {
+			t.Fatalf("recovery changed binding or published terminal state before verification: %v", err)
+		}
+		return interrupted
+	}
+	if err := app.Run(t.Context(), args); !errors.Is(err, interrupted) {
+		t.Fatalf("first recovery: %v", err)
+	}
+	retained, err := core.ReadLeaseClaim(req.RequestedLeaseID)
+	if err != nil || retained.FixedCreateIntent.State == "released" || retained.Labels[core.AzureCleanupBindingLabel] != "" {
+		t.Fatalf("interruption lost unchanged-format claim: %v", err)
+	}
+	client.deleteOwnedFunc = nil
+	if err := app.Run(t.Context(), args); err != nil {
+		t.Fatal(err)
+	}
+	terminal, err := core.ReadLeaseClaim(req.RequestedLeaseID)
+	if err != nil || terminal.FixedCreateIntent.State != "released" || terminal.Labels[core.AzureCleanupBindingLabel] != "" {
+		t.Fatalf("missing existing-format terminal receipt: %v", err)
+	}
+	if err := app.Run(t.Context(), args); err != nil {
+		t.Fatalf("terminal retry: %v", err)
+	}
+	if len(client.ownedExpected) != 2 {
+		t.Fatalf("terminal retry repeated provider work: %d", len(client.ownedExpected))
+	}
+}
+
 func TestFixedAzureExplicitRecoveryCancellationWhileClaimLocked(t *testing.T) {
 	client := &fakeAzureClient{}
 	b := fixedAzureTestBackend(t, client)

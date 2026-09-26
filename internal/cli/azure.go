@@ -1876,19 +1876,19 @@ func (c *AzureClient) DeleteServer(ctx context.Context, name string) error {
 // be deleted. Callers requiring crash-resumable cleanup persist the returned
 // labels in the exact lease claim; acquisition rollback holds them in process.
 func (c *AzureClient) PrepareOwnedServer(ctx context.Context, expected Server) (Server, error) {
-	return c.prepareAzureDeleteServer(ctx, expected, func(expected, live Server) error {
+	return c.prepareAzureDeleteServer(ctx, expected, true, func(expected, live Server) error {
 		return ValidateAzureOwnedVM(expected, live)
 	})
 }
 
 // PrepareCleanupServer is the expiry-aware variant used by automatic cleanup.
 func (c *AzureClient) PrepareCleanupServer(ctx context.Context, expected Server, now time.Time) (Server, error) {
-	return c.prepareAzureDeleteServer(ctx, expected, func(expected, live Server) error {
+	return c.prepareAzureDeleteServer(ctx, expected, false, func(expected, live Server) error {
 		return validateAzureCleanupVM(expected, live, now)
 	})
 }
 
-func (c *AzureClient) prepareAzureDeleteServer(ctx context.Context, expected Server, validateVM func(Server, Server) error) (Server, error) {
+func (c *AzureClient) prepareAzureDeleteServer(ctx context.Context, expected Server, recoverAbsent bool, validateVM func(Server, Server) error) (Server, error) {
 	name := strings.TrimSpace(expected.CloudID)
 	if name == "" {
 		return Server{}, errors.New("azure delete candidate has no cloud id")
@@ -1896,6 +1896,12 @@ func (c *AzureClient) prepareAzureDeleteServer(ctx context.Context, expected Ser
 	vmResponse, err := c.vmc.Get(ctx, c.ResourceGroup, name, nil)
 	if err != nil {
 		if isAzureNotFoundError(err) {
+			if recoverAbsent && expected.Labels[AzureCleanupBindingLabel] == "" {
+				if err := c.verifyAzureOrphanResourcesAbsent(ctx, expected); err != nil {
+					return Server{}, err
+				}
+				return expected, nil
+			}
 			if _, bindingErr := azureDeleteResourcesFromLabels(expected); bindingErr != nil {
 				return Server{}, fmt.Errorf("Azure VM %s is absent and its durable cleanup binding is unavailable: %w", name, bindingErr)
 			}
@@ -1932,6 +1938,9 @@ func (c *AzureClient) prepareAzureDeleteServer(ctx context.Context, expected Ser
 // DeleteOwnedServer revalidates an exact owned VM and every associated resource
 // at the release mutation boundary. Lease expiry is intentionally irrelevant.
 func (c *AzureClient) DeleteOwnedServer(ctx context.Context, expected Server) error {
+	if expected.Labels[AzureCleanupBindingLabel] == "" {
+		return c.verifyAzureOrphanResourcesAbsent(ctx, expected)
+	}
 	resources, err := azureDeleteResourcesFromLabels(expected)
 	if err != nil {
 		return err
